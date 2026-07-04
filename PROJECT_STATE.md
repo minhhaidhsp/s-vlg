@@ -44,7 +44,7 @@ triển thành **HAI bài báo khoa học** từ **chung một codebase**.
 | | Trạng thái | Chi tiết |
 |---|---|---|
 | **Version 1 (S-VLG)** | **PENDING** tại ranh giới Giai đoạn 5/6 | Đã xong Giai đoạn 1-5 (khung dự án, framework tiền xử lý, toàn bộ module mô hình, Graph-RAG, ResultsLogger + tách version, cơ chế kết quả tạm/provisional + checkpoint mỗi epoch). **ĐANG CHỜ**: phê duyệt CITI trên PhysioNet để được cấp quyền tải MIMIC-IV/MIMIC-CXR-JPG thật. Khi có dữ liệu thật, tiếp tục Giai đoạn 6 (tiền xử lý MIMIC thật, dựng cohort, xây patient knowledge graph từ dữ liệu thật) rồi Giai đoạn 7-8. |
-| **Version 2 (SU-MedVQA)** | **ĐANG LÀM** | Chạy được ngay vì dùng dữ liệu công khai VQA-RAD/SLAKE (đã tải xong tại `data/raw/vqa-rad/`, `data/raw/slake/`). Đã xong Giai đoạn 1-3, 5 (module lõi dùng chung + `su_medvqa.py` + hạ tầng kết quả, gồm cả cơ chế provisional). Kế hoạch: chạy trọn Giai đoạn 6-7-8 (không có Giai đoạn 4 — V2 không dùng Graph-RAG). |
+| **Version 2 (SU-MedVQA)** | **ĐANG LÀM** — smoke test toàn diện đã chạy PASS trên CPU local | Chạy được ngay vì dùng dữ liệu công khai VQA-RAD/SLAKE (đã tải xong tại `data/raw/vqa-rad/`, `data/raw/slake/`). Đã xong Giai đoạn 1-3, 5 (module lõi dùng chung + `su_medvqa.py` + hạ tầng kết quả, gồm cả cơ chế provisional). Đã chạy `scripts/run_smoketest_v2.py` (n=50/dataset, 2 epoch + 4 biến thể ablation, CPU/test_mode) — sinh đủ 8/8 mục Bảng 6,7,9,10,11 + Hình 8,9,10 với `status="provisional"`, xác nhận toàn bộ pipeline train→eval→ablation→risk-coverage→compile chạy thông trên máy local. Số liệu xấu (vqa_acc≈0, tiny model) — ĐÚNG NHƯ DỰ KIẾN, chưa phải kết quả thật. Kế hoạch: chạy lại với dữ liệu đầy đủ + epoch/seed thật trên Colab GPU (Giai đoạn 6-7-8 thật, không có Giai đoạn 4 — V2 không dùng Graph-RAG). |
 
 **Mới**: đã có cơ chế lấy kết quả TẠM (không cần chờ train đủ 20 epoch × 3
 seed) — xem mục 6 và `PAPER_DATA_MAP.md`. `src/train/train_loop.py` lưu
@@ -240,6 +240,39 @@ thành một file `outputs/PAPER_DATA_{version}.md` để điền bản thảo n
   sang `"vit_base_patch16_224"` (giá trị `null` khiến `.get(key, default)`
   trả `None` thay vì fallback — bug lộ ra khi dùng config thật qua
   `load_version_config` lần đầu, không phải khi test bằng dict tự tạo).
+
+- **2026-07-04 (tiếp 2)**: Chạy smoke test toàn diện cho V2 (SU-MedVQA) trên
+  CPU local, xác nhận toàn bộ pipeline train→eval→ablation→risk-coverage→
+  compile chạy thông và sinh đúng định dạng số cho MỌI bảng/hình V2. Thêm:
+  - `src/data/vqa_dataset.py`: `VQADataset`/`DataLoader` cho VQA-RAD/SLAKE
+    (resize 224 + chuẩn hóa ImageNet, tokenize bằng tokenizer của decoder,
+    tự chia val từ train khi bộ dữ liệu chưa có sẵn — VQA-RAD; SLAKE dùng
+    split có sẵn).
+  - `src/eval/metrics.py`: vqa_acc, exact_match, BLEU-1/4 (sacrebleu),
+    precision/recall/F1/AUC-ROC cho câu hỏi CLOSED, phân rã theo category,
+    và `risk_coverage_curve` (LƯU Ý: phải chạy trên toàn bộ val+test, không
+    lấy tập con).
+  - Thêm cờ ablation vào 2 module lõi dùng chung: `RPRCoAttention`/
+    `RPR2DSelfAttention` nhận `use_rel_pos_bias` (tắt = chú ý chéo tiêu
+    chuẩn, không vị trí tương đối) + `return_attn` (trả ma trận attention
+    cho Hình 10); `DisentangledFusion` nhận `deterministic` (z=mu, bỏ L_KL,
+    U=NaN "không định nghĩa"). `SU_MedVQA` expose cả hai qua constructor.
+    Cổng bất định tắt được qua `gamma=float("inf")` khi gọi `generate()`
+    (không cần sửa code — đúng thiết kế "cổng chỉ áp ở suy diễn").
+  - `scripts/run_smoketest_v2.py`: chạy toàn chuỗi — train full model
+    2 epoch, eval → Bảng 6/7 (kèm dòng riêng theo dataset cho "VQA-RAD/SLAKE
+    riêng", gộp vào Bảng 6 thay vì tạo Bảng 8 riêng cho V2), Bảng 10 + Hình 8
+    (risk-coverage trên toàn bộ val+test), Hình 10 (attention heatmap các
+    câu hỏi Organ/Position), Bảng 11 (chi phí — đo thật trên CPU, `dataset`
+    field ghi rõ caveat "cần đo lại trên GPU Colab", `gpu_mem_gb` để trống
+    → `[THIẾU]` vì không đo được trên CPU); ablation 4 biến thể (full,
+    no_rpr, no_gate, no_disentangle) mỗi biến thể train 1 epoch riêng →
+    Bảng 9 + Hình 9. Đã chạy thật với `--n 50 --epochs 2`: **8/8 mục sinh
+    đủ số** (`status="provisional"`), 0 mục thiếu — xác nhận pipeline hoạt
+    động đúng end-to-end (số xấu, vqa_acc≈0, vì tiny model/2 epoch — ĐÚNG
+    NHƯ DỰ KIẾN, không phải kết quả thật).
+  - Cập nhật `MANIFEST.md`/`PAPER_DATA_MAP.md`: thêm Bảng 11 cho V2 (trước
+    đó ghi nhầm là "V1 riêng").
 
 ---
 

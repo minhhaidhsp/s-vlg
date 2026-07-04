@@ -1,0 +1,97 @@
+{
+  "records": [
+    {
+      "label": "full",
+      "x": [
+        "vqa_acc",
+        "exact_match",
+        "f1"
+      ],
+      "y": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "seed": 0,
+      "status": "provisional",
+      "epochs_trained": 1,
+      "timestamp": "2026-07-04T15:12:11.366628+00:00",
+      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "experiment_version": "v2",
+      "dataset": "vqa-rad+slake",
+      "config": {
+        "seed": 0
+      }
+    },
+    {
+      "label": "no_rpr",
+      "x": [
+        "vqa_acc",
+        "exact_match",
+        "f1"
+      ],
+      "y": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "seed": 0,
+      "status": "provisional",
+      "epochs_trained": 1,
+      "timestamp": "2026-07-04T15:13:07.801949+00:00",
+      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "experiment_version": "v2",
+      "dataset": "vqa-rad+slake",
+      "config": {
+        "seed": 0
+      }
+    },
+    {
+      "label": "no_gate",
+      "x": [
+        "vqa_acc",
+        "exact_match",
+        "f1"
+      ],
+      "y": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "seed": 0,
+      "status": "provisional",
+      "epochs_trained": 1,
+      "timestamp": "2026-07-04T15:13:48.954989+00:00",
+      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "experiment_version": "v2",
+      "dataset": "vqa-rad+slake",
+      "config": {
+        "seed": 0
+      }
+    },
+    {
+      "label": "no_disentangle",
+      "x": [
+        "vqa_acc",
+        "exact_match",
+        "f1"
+      ],
+      "y": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "seed": 0,
+      "status": "provisional",
+      "epochs_trained": 1,
+      "timestamp": "2026-07-04T15:14:31.927698+00:00",
+      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "experiment_version": "v2",
+      "dataset": "vqa-rad+slake",
+      "config": {
+        "seed": 0
+      }
+    }
+  ],
+  "curve_id": "fig9_ablation"
+}

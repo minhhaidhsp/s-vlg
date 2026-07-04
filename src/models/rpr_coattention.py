@@ -29,10 +29,16 @@ class RPR2DSelfAttention(nn.Module):
         k: clipping radius for relative row/col offsets (Eq. 9-10), default 8.
     """
 
-    def __init__(self, d: int, k: int = 8):
+    def __init__(self, d: int, k: int = 8, use_rel_pos_bias: bool = True):
         super().__init__()
         self.d = d
         self.k = k
+        # Ablation switch (Table 9 "no_rpr" variant): when False, this
+        # degenerates to plain dot-product self-attention with no relative-
+        # position bias — the rel_k_table/rel_v_table still exist (so the
+        # ablated model has a comparable parameter budget) but their output
+        # is simply never added to the attention scores/values.
+        self.use_rel_pos_bias = use_rel_pos_bias
         num_buckets = (2 * k + 1) ** 2  # e.g. 289 for k=8
 
         self.q_proj = nn.Linear(d, d)
@@ -69,25 +75,25 @@ class RPR2DSelfAttention(nn.Module):
         k_ = self.k_proj(patch_tokens)
         v_ = self.v_proj(patch_tokens)
 
-        rel_index = self._relative_position_index(patch_coords)  # [N_p, N_p]
-        a_K = self.rel_k_table(rel_index)  # [N_p, N_p, d], Eq. (11)
-        a_V = self.rel_v_table(rel_index)  # [N_p, N_p, d], Eq. (11)
-
         # Eq. (12): e_ij = q_i . (k_j + a_ij_K)^T / sqrt(d).
         # Expanded as q_i.k_j + q_i.a_ij_K to avoid materializing a [B,N_p,N_p,d]
         # tensor (a_K/a_V have no batch dim, so this is exactly equivalent but
         # far more memory-efficient than broadcasting k_ + a_K across the batch).
-        e_qk = torch.einsum("bid,bjd->bij", q, k_) / (d ** 0.5)
-        e_qa = torch.einsum("bid,ijd->bij", q, a_K) / (d ** 0.5)
-        e = e_qk + e_qa  # [B, N_p, N_p]
+        e = torch.einsum("bid,bjd->bij", q, k_) / (d ** 0.5)
+
+        if self.use_rel_pos_bias:
+            rel_index = self._relative_position_index(patch_coords)  # [N_p, N_p]
+            a_K = self.rel_k_table(rel_index)  # [N_p, N_p, d], Eq. (11)
+            a_V = self.rel_v_table(rel_index)  # [N_p, N_p, d], Eq. (11)
+            e = e + torch.einsum("bid,ijd->bij", q, a_K) / (d ** 0.5)
 
         # Eq. (13)
         alpha = torch.softmax(e, dim=-1)
 
         # Eq. (14): o_i = sum_j alpha_ij * (v_j + a_ij_V), same expand-avoiding trick.
-        o_v = torch.einsum("bij,bjd->bid", alpha, v_)
-        o_a = torch.einsum("bij,ijd->bid", alpha, a_V)
-        o = o_v + o_a  # [B, N_p, d]
+        o = torch.einsum("bij,bjd->bid", alpha, v_)
+        if self.use_rel_pos_bias:
+            o = o + torch.einsum("bij,ijd->bid", alpha, a_V)
 
         return o
 
@@ -100,10 +106,10 @@ class RPRCoAttention(nn.Module):
         k: relative-position clipping radius (Eq. 9-10), default 8.
     """
 
-    def __init__(self, d: int, k: int = 8):
+    def __init__(self, d: int, k: int = 8, use_rel_pos_bias: bool = True):
         super().__init__()
         self.d = d
-        self.patch_self_attn = RPR2DSelfAttention(d, k=k)
+        self.patch_self_attn = RPR2DSelfAttention(d, k=k, use_rel_pos_bias=use_rel_pos_bias)
 
         self.q_proj = nn.Linear(d, d)
         self.k_proj = nn.Linear(d, d)
@@ -114,15 +120,20 @@ class RPRCoAttention(nn.Module):
         patch_tokens: torch.Tensor,
         patch_coords: torch.Tensor,
         question_tokens: torch.Tensor,
-    ) -> torch.Tensor:
+        return_attn: bool = False,
+    ):
         """
         Args:
             patch_tokens: [B, N_p, d] ViT patch features (VisionEncoder output).
             patch_coords: [N_p, 2] (row, col) grid coordinates (VisionEncoder output).
             question_tokens: [B, L, d] question token embeddings.
+            return_attn: if True, also return the Stage-2 question->patch
+                attention map [B, L, N_p] (e.g. for the Figure 10 attention
+                heatmap — reshape the last dim to the 14x14 patch grid).
 
         Returns:
             h_vis: [B, d] spatially-aligned visual feature.
+            attn (only if return_attn=True): [B, L, N_p] cross-attention weights.
         """
         # Stage 1 — Eq. (9)-(14): patch-patch self-attention with 2D RPR bias.
         patch_refined = self.patch_self_attn(patch_tokens, patch_coords)  # [B, N_p, d]
@@ -139,6 +150,8 @@ class RPRCoAttention(nn.Module):
 
         # Eq. (Σ over question tokens): pool the per-question-token context into h_vis.
         h_vis = context.mean(dim=1)  # [B, d]
+        if return_attn:
+            return h_vis, attn
         return h_vis
 
 
@@ -172,6 +185,22 @@ def _self_test() -> bool:
         ok = False
     if n_v != expected_buckets:
         print(f"FAIL: W_V table size {n_v} != {expected_buckets}")
+        ok = False
+
+    # return_attn=True should expose the [B, L, N_p] question->patch attention map.
+    h_vis2, attn = model(patch_tokens, patch_coords, question_tokens, return_attn=True)
+    if attn.shape != (B, L, N_p):
+        print(f"FAIL: attn shape {tuple(attn.shape)} != {(B, L, N_p)}")
+        ok = False
+    if not torch.allclose(attn.sum(dim=-1), torch.ones(B, L), atol=1e-4):
+        print("FAIL: attn rows do not sum to 1 (not a valid softmax distribution)")
+        ok = False
+
+    # Ablation switch: use_rel_pos_bias=False should still run cleanly (no NaN).
+    model_no_rpr = RPRCoAttention(d=d, k=k, use_rel_pos_bias=False)
+    h_vis_no_rpr = model_no_rpr(patch_tokens, patch_coords, question_tokens)
+    if h_vis_no_rpr.shape != (B, d) or torch.isnan(h_vis_no_rpr).any():
+        print("FAIL: use_rel_pos_bias=False variant broken")
         ok = False
 
     print("PASS: rpr_coattention" if ok else "FAIL: rpr_coattention")

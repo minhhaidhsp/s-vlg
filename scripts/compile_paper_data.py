@@ -56,6 +56,9 @@ TABLE_SPECS = {
          "key_field": "variant_name", "metric_names": ["vqa_acc", "exact_match", "f1", "auc_roc"]},
         {"title": "Bảng 10 — Risk-coverage", "filename": "table10_risk_coverage.json",
          "key_field": "config_name", "metric_names": ["auc"]},
+        {"title": "Bảng 11 — Chi phí tính toán", "filename": "table11_efficiency.json",
+         "key_field": "model_name",
+         "metric_names": ["train_time_hours", "gpu_mem_gb", "inference_latency_ms", "num_params"]},
     ],
 }
 

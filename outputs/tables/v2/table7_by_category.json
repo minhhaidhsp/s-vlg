@@ -1,0 +1,147 @@
+{
+  "records": [
+    {
+      "model_name": "SU-MedVQA",
+      "metrics": {
+        "vqa_acc": 0.0,
+        "exact_match": 0.0,
+        "f1": 0.0
+      },
+      "seed": 0,
+      "status": "provisional",
+      "epochs_trained": 2,
+      "timestamp": "2026-07-04T15:11:33.002076+00:00",
+      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "experiment_version": "v2",
+      "dataset": "answer_type:CLOSED",
+      "config": {
+        "seed": 0
+      }
+    },
+    {
+      "model_name": "SU-MedVQA",
+      "metrics": {
+        "vqa_acc": 0.0,
+        "exact_match": 0.0
+      },
+      "seed": 0,
+      "status": "provisional",
+      "epochs_trained": 2,
+      "timestamp": "2026-07-04T15:11:33.015158+00:00",
+      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "experiment_version": "v2",
+      "dataset": "answer_type:OPEN",
+      "config": {
+        "seed": 0
+      }
+    },
+    {
+      "model_name": "SU-MedVQA",
+      "metrics": {
+        "vqa_acc": 0.0,
+        "exact_match": 0.0,
+        "f1": 0.0
+      },
+      "seed": 0,
+      "status": "provisional",
+      "epochs_trained": 2,
+      "timestamp": "2026-07-04T15:11:33.035446+00:00",
+      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "experiment_version": "v2",
+      "dataset": "question_type:unknown",
+      "config": {
+        "seed": 0
+      }
+    },
+    {
+      "model_name": "SU-MedVQA",
+      "metrics": {
+        "vqa_acc": 0.0,
+        "exact_match": 0.0,
+        "f1": 0.0
+      },
+      "seed": 0,
+      "status": "provisional",
+      "epochs_trained": 2,
+      "timestamp": "2026-07-04T15:11:33.057162+00:00",
+      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "experiment_version": "v2",
+      "dataset": "question_type:Organ",
+      "config": {
+        "seed": 0
+      }
+    },
+    {
+      "model_name": "SU-MedVQA",
+      "metrics": {
+        "vqa_acc": 0.0,
+        "exact_match": 0.0
+      },
+      "seed": 0,
+      "status": "provisional",
+      "epochs_trained": 2,
+      "timestamp": "2026-07-04T15:11:33.076245+00:00",
+      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "experiment_version": "v2",
+      "dataset": "question_type:Position",
+      "config": {
+        "seed": 0
+      }
+    },
+    {
+      "model_name": "SU-MedVQA",
+      "metrics": {
+        "vqa_acc": 0.0,
+        "exact_match": 0.0,
+        "f1": 0.0
+      },
+      "seed": 0,
+      "status": "provisional",
+      "epochs_trained": 2,
+      "timestamp": "2026-07-04T15:11:33.097493+00:00",
+      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "experiment_version": "v2",
+      "dataset": "question_type:KG",
+      "config": {
+        "seed": 0
+      }
+    },
+    {
+      "model_name": "SU-MedVQA",
+      "metrics": {
+        "vqa_acc": 0.0,
+        "exact_match": 0.0
+      },
+      "seed": 0,
+      "status": "provisional",
+      "epochs_trained": 2,
+      "timestamp": "2026-07-04T15:11:33.116891+00:00",
+      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "experiment_version": "v2",
+      "dataset": "question_type:Plane",
+      "config": {
+        "seed": 0
+      }
+    },
+    {
+      "model_name": "SU-MedVQA",
+      "metrics": {
+        "vqa_acc": 0.0,
+        "exact_match": 0.0,
+        "f1": 0.0
+      },
+      "seed": 0,
+      "status": "provisional",
+      "epochs_trained": 2,
+      "timestamp": "2026-07-04T15:11:33.138112+00:00",
+      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "experiment_version": "v2",
+      "dataset": "question_type:Size",
+      "config": {
+        "seed": 0
+      }
+    }
+  ],
+  "table_id": "table7_by_category",
+  "aggregates": []
+}

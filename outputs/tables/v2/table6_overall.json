@@ -1,0 +1,75 @@
+{
+  "records": [
+    {
+      "model_name": "SU-MedVQA",
+      "metrics": {
+        "vqa_acc": 0.0,
+        "exact_match": 0.0,
+        "bleu1": 0.0,
+        "bleu4": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "auc_roc": null
+      },
+      "seed": 0,
+      "status": "provisional",
+      "epochs_trained": 2,
+      "timestamp": "2026-07-04T15:11:32.943226+00:00",
+      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "experiment_version": "v2",
+      "dataset": "vqa-rad+slake",
+      "config": {
+        "seed": 0
+      }
+    },
+    {
+      "model_name": "SU-MedVQA",
+      "metrics": {
+        "vqa_acc": 0.0,
+        "exact_match": 0.0,
+        "bleu1": 0.0,
+        "bleu4": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "auc_roc": null
+      },
+      "seed": 0,
+      "status": "provisional",
+      "epochs_trained": 2,
+      "timestamp": "2026-07-04T15:11:32.960053+00:00",
+      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "experiment_version": "v2",
+      "dataset": "slake",
+      "config": {
+        "seed": 0
+      }
+    },
+    {
+      "model_name": "SU-MedVQA",
+      "metrics": {
+        "vqa_acc": 0.0,
+        "exact_match": 0.0,
+        "bleu1": 0.0,
+        "bleu4": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "auc_roc": null
+      },
+      "seed": 0,
+      "status": "provisional",
+      "epochs_trained": 2,
+      "timestamp": "2026-07-04T15:11:32.981185+00:00",
+      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "experiment_version": "v2",
+      "dataset": "vqa-rad",
+      "config": {
+        "seed": 0
+      }
+    }
+  ],
+  "table_id": "table6_overall",
+  "aggregates": []
+}

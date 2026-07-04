@@ -55,17 +55,20 @@ real numbers filled in where available and `[…]` for anything still missing.
 
 ## Version 2 (SU-MedVQA) tables (`outputs/tables/v2/`)
 
-V2 has a smaller scope than V1 — no graph/tabular branches, no Graph-RAG, so
-no Table 11 (compute cost is a V1-only comparison point) and no separate
-Table 8 (V2's *primary* data already is VQA-RAD/SLAKE, covered by Table 6/7
-directly, not as a secondary external-generalization check).
+V2 has a smaller scope than V1 — no graph/tabular branches, no Graph-RAG, and
+no separate Table 8 (V2's *primary* data already is VQA-RAD/SLAKE — reported
+as extra per-dataset rows of Table 6 instead of a secondary
+external-generalization check). Table 11 (compute cost) IS included for V2
+(CPU-local numbers, explicitly labeled as needing a GPU re-measurement for
+final — see `PAPER_DATA_MAP.md`).
 
 | Paper item | JSON file | Written by | Required fields |
 |---|---|---|---|
-| Table 6 — overall performance | `v2/table6_overall.json` | `ResultsLogger(experiment_version="v2").log_metrics(table_id="table6_overall", ...)` | model_name, dataset ("vqa-rad"/"slake"), seed, vqa_acc, exact_match, bleu4, precision, recall, f1, auc_roc |
-| Table 7 — performance by question category | `v2/table7_by_category.json` | `log_metrics(table_id="table7_by_category", ...)` | model_name, dataset, seed, question_category, vqa_acc, exact_match, f1 |
-| Table 9 — ablation (RPR-CoAttention + uncertainty control) | `v2/table9_ablation.json` | `log_ablation(...)` | variant_name (e.g. "full", "no_rpr_bias", "no_uncertainty_gate"), dataset, seed, vqa_acc, exact_match, f1, auc_roc |
+| Table 6 — overall performance (+ per-dataset rows for "VQA-RAD/SLAKE riêng") | `v2/table6_overall.json` | `ResultsLogger(experiment_version="v2").log_metrics(table_id="table6_overall", ...)` | model_name, dataset ("vqa-rad+slake" combined, or "vqa-rad"/"slake" per-dataset), seed, vqa_acc, exact_match, bleu4, precision, recall, f1, auc_roc |
+| Table 7 — performance by question category | `v2/table7_by_category.json` | `log_metrics(table_id="table7_by_category", ...)` | model_name, dataset (encodes category as "answer_type:X"/"question_type:X"), seed, vqa_acc, exact_match, f1 |
+| Table 9 — ablation (RPR-CoAttention + uncertainty control) | `v2/table9_ablation.json` | `log_ablation(...)` | variant_name ("full", "no_rpr", "no_gate", "no_disentangle"), dataset, seed, vqa_acc, exact_match, f1, auc_roc |
 | Table 10 — risk-coverage | `v2/table10_risk_coverage.json` | `log_risk_coverage(...)` | config_name, dataset, seed, coverage_points, risk_values, auc |
+| Table 11 — compute cost | `v2/table11_efficiency.json` | `log_metrics(table_id="table11_efficiency", ...)` | model_name, dataset (notes CPU-local caveat), seed, train_time_hours, gpu_mem_gb (left absent until measured on GPU), inference_latency_ms, num_params |
 
 ## Version 2 (SU-MedVQA) figures (`outputs/figures/data/v2/`)
 

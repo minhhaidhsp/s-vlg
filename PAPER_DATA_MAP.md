@@ -101,12 +101,12 @@ File này (PAPER_DATA_MAP.md) mô tả **kịch bản** (cái gì cần, khi nà
 
 | | |
 |---|---|
-| **Thuộc** | **V1 riêng** (V2 không nằm trong scope bản thảo V2) |
+| **Thuộc** | V1 và V2 |
 | **Trường số liệu** | model_name, dataset, seed, train_time_hours, gpu_mem_gb, inference_latency_ms, num_params |
-| **Script sinh** | đo trực tiếp trong `train_loop.py` (thời gian/epoch × số epoch, GPU mem peak) + script đo latency suy diễn trên checkpoint — **CHƯA CÓ dữ liệu thật** |
-| **File JSON** | `outputs/tables/v1/table11_efficiency.json` |
-| **Trạng thái hiện tại** | Chưa có |
-| **Train tối thiểu để có nghĩa** | train_time_hours/gpu_mem_gb đo được ngay từ **1 epoch** (ngoại suy tuyến tính ra 20 epoch, ghi rõ là ước lượng cho tới khi có full run). inference_latency_ms/num_params đo được với **bất kỳ checkpoint nào** (kể cả epoch 1), không phụ thuộc train nhiều hay ít. |
+| **Script sinh** | đo trực tiếp trong `train_loop.py`/`scripts/run_smoketest_v2.py` (thời gian/epoch × số epoch, GPU mem peak) + đo latency suy diễn trên checkpoint |
+| **File JSON** | `outputs/tables/v1/table11_efficiency.json` · `outputs/tables/v2/table11_efficiency.json` |
+| **Trạng thái hiện tại** | V1: Chưa có · V2: **Có tạm** (đo trên CPU local qua `scripts/run_smoketest_v2.py`, `dataset` field ghi rõ caveat "cần đo lại trên GPU Colab"; `gpu_mem_gb` để trống vì không đo được trên CPU) |
+| **Train tối thiểu để có nghĩa** | train_time_hours/gpu_mem_gb đo được ngay từ **1 epoch** (ngoại suy tuyến tính ra 20 epoch, ghi rõ là ước lượng cho tới khi có full run). inference_latency_ms/num_params đo được với **bất kỳ checkpoint nào** (kể cả epoch 1), không phụ thuộc train nhiều hay ít. **LƯU Ý**: số đo trên CPU local KHÔNG được coi là số final — GPU Colab cho ra thời gian/bộ nhớ hoàn toàn khác, bắt buộc đo lại. |
 
 ---
 

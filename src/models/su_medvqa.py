@@ -27,7 +27,22 @@ class SU_MedVQA(nn.Module):
     configs/config.yaml (see src/utils/config.py: load_version_config).
     """
 
-    def __init__(self, config: dict, test_mode: bool = True):
+    def __init__(
+        self,
+        config: dict,
+        test_mode: bool = True,
+        use_rel_pos_bias: bool = True,
+        disentangle_deterministic: bool = False,
+    ):
+        """
+        Args:
+            config: see configs/config_v2.yaml merged over configs/config.yaml.
+            test_mode: tiny non-quantized decoder (local/CPU) vs real LLM+QLoRA.
+            use_rel_pos_bias: ablation switch (Table 9 "no_rpr" variant) — see
+                RPRCoAttention docstring.
+            disentangle_deterministic: ablation switch (Table 9
+                "no_disentangle" variant) — see DisentangledFusion docstring.
+        """
         super().__init__()
         model_cfg = config.get("model", {})
         uncertainty_cfg = config.get("uncertainty", {})
@@ -48,7 +63,7 @@ class SU_MedVQA(nn.Module):
         self.vision_encoder = VisionEncoder(
             vit_name=model_cfg.get("vit_name", "vit_base_patch16_224"), test_mode=test_mode
         )
-        self.rpr_coattention = RPRCoAttention(d=d_vis, k=8)
+        self.rpr_coattention = RPRCoAttention(d=d_vis, k=8, use_rel_pos_bias=use_rel_pos_bias)
         # TODO: same placeholder embedding as svlg.py — replace with the real
         # question tokenizer/embedding once wired to the actual text pipeline.
         self.question_embedding = nn.Embedding(question_vocab_size, d_vis)
@@ -56,7 +71,8 @@ class SU_MedVQA(nn.Module):
         # --- Fusion: Eq. (21)-(28), num_branches=1 (vision only) ---
         branch_dims = [fusion_d_vis]
         self.fusion = DisentangledFusion(
-            in_dim=d_vis, d_shared=fusion_d_shared, branch_dims=branch_dims
+            in_dim=d_vis, d_shared=fusion_d_shared, branch_dims=branch_dims,
+            deterministic=disentangle_deterministic,
         )
         z_final_dim = fusion_d_shared + sum(branch_dims)  # Eq. (27)
 
@@ -79,6 +95,7 @@ class SU_MedVQA(nn.Module):
         system_text: str = "You are a helpful medical VQA assistant.",
         answer_text=None,
         verbose: bool = False,
+        return_attn: bool = False,
     ):
         """End-to-end forward pass (vision + text only, no evidence retrieval).
 
@@ -88,12 +105,15 @@ class SU_MedVQA(nn.Module):
             question_text: single string or list[str] of length B — question, for the decoder prompt.
             answer_text: (training only) single string or list[str] of length B.
             verbose: if True, print the shape after each step for debugging.
+            return_attn: if True, also return the RPR-CoAttention question->patch
+                attention map [B, L, N_p] (Figure 10 attention heatmap data).
 
         Returns:
             z_final: [B, d_shared + d_vis], Eq. (27).
             U: [B] per-sample uncertainty score, Eq. (28).
             fusion_losses: dict with "L_MI" (Eq. 24) and "L_KL" (Eq. 25).
             decoder_out: (loss, logits) if answer_text is given, else None.
+            attn (only if return_attn=True): [B, L, N_p] attention weights.
         """
         # Step 1 — Eq. (4): ViT patch features.
         patch_features, patch_coords = self.vision_encoder(images)
@@ -102,7 +122,11 @@ class SU_MedVQA(nn.Module):
 
         # Step 2 — Eq. (9)-(14): RPR co-attention -> h_vis.
         question_tokens = self.question_embedding(question_input_ids)
-        h_vis = self.rpr_coattention(patch_features, patch_coords, question_tokens)
+        attn = None
+        if return_attn:
+            h_vis, attn = self.rpr_coattention(patch_features, patch_coords, question_tokens, return_attn=True)
+        else:
+            h_vis = self.rpr_coattention(patch_features, patch_coords, question_tokens)
         if verbose:
             print(f"[2] h_vis: {tuple(h_vis.shape)}")
 
@@ -122,6 +146,8 @@ class SU_MedVQA(nn.Module):
             if verbose:
                 print(f"[4] decoder loss: {decoder_out[0].item():.4f}, logits: {tuple(decoder_out[1].shape)}")
 
+        if return_attn:
+            return z_final, U, fusion_losses, decoder_out, attn
         return z_final, U, fusion_losses, decoder_out
 
     def compute_total_loss(

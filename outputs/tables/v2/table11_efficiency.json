@@ -1,0 +1,24 @@
+{
+  "records": [
+    {
+      "model_name": "SU-MedVQA",
+      "metrics": {
+        "train_time_hours": 0.021326514614952934,
+        "inference_latency_ms": 183.85839462280273,
+        "num_params": 128708012
+      },
+      "seed": 0,
+      "status": "provisional",
+      "epochs_trained": 2,
+      "timestamp": "2026-07-04T15:11:37.573375+00:00",
+      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "experiment_version": "v2",
+      "dataset": "cpu-local (do tren CPU local; can do lai tren GPU Colab de co so FINAL, va num_params la cua mo hinh tiny test_mode, khong phai Qwen+LoRA that)",
+      "config": {
+        "seed": 0
+      }
+    }
+  ],
+  "table_id": "table11_efficiency",
+  "aggregates": []
+}

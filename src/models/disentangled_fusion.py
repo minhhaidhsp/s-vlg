@@ -80,12 +80,21 @@ class DisentangledFusion(nn.Module):
         vclub_hidden: hidden width of each vCLUB approximator network.
     """
 
-    def __init__(self, in_dim: int, d_shared: int, branch_dims: list, vclub_hidden: int = 64):
+    def __init__(
+        self, in_dim: int, d_shared: int, branch_dims: list, vclub_hidden: int = 64,
+        deterministic: bool = False,
+    ):
         super().__init__()
         if len(branch_dims) < 1:
             raise ValueError("branch_dims must have at least one entry (num_branches >= 1)")
         self.num_branches = len(branch_dims)
         self.branch_dims = list(branch_dims)
+        # Ablation switch (Table 9 "no_disentangle" variant): when True, the
+        # shared latent is deterministic (z_s_var = mu, no reparameterization
+        # noise), L_KL is dropped (there is no posterior to regularize), and U
+        # is undefined (returned as NaN) since there is no variance to read it
+        # from — see Eq. (22)-(23), (25), (28).
+        self.deterministic = deterministic
 
         # Eq. (21): one linear projection for the shared latent, one per specific branch.
         self.proj_shared = nn.Linear(in_dim, d_shared)
@@ -120,21 +129,25 @@ class DisentangledFusion(nn.Module):
         mu = self.fc_mu(z_shared)
         logvar = self.fc_logvar(z_shared).clamp(-10.0, 10.0)
 
-        # Eq. (23): reparameterization trick.
-        eps = torch.randn_like(mu)
-        z_s_var = mu + torch.exp(0.5 * logvar) * eps
+        if self.deterministic:
+            # Ablation: no reparameterization, no KL, no uncertainty (see __init__ note).
+            z_s_var = mu
+            L_KL = mu.new_tensor(0.0)
+            U = torch.full((mu.shape[0],), float("nan"), device=mu.device, dtype=mu.dtype)
+        else:
+            # Eq. (23): reparameterization trick.
+            eps = torch.randn_like(mu)
+            z_s_var = mu + torch.exp(0.5 * logvar) * eps
+            # Eq. (25): closed-form KL divergence to a standard normal prior.
+            L_KL = 0.5 * torch.sum(mu ** 2 + logvar.exp() - logvar - 1.0, dim=-1).mean()
+            # Eq. (28): per-sample uncertainty = mean posterior log-variance over latent dims.
+            U = logvar.mean(dim=-1)
 
         # Eq. (24): sum of the pairwise CLUB upper bounds, one per branch
         # (2 terms for V1's vis+tab, 1 term for V2's vis-only).
         L_MI = sum(
             vclub(z_s_var, z_b) for vclub, z_b in zip(self.vclub_branches, z_branches)
         )
-
-        # Eq. (25): closed-form KL divergence to a standard normal prior.
-        L_KL = 0.5 * torch.sum(mu ** 2 + logvar.exp() - logvar - 1.0, dim=-1).mean()
-
-        # Eq. (28): per-sample uncertainty = mean posterior log-variance over latent dims.
-        U = logvar.mean(dim=-1)
 
         # Eq. (27)
         z_final = torch.cat([z_s_var, *z_branches], dim=-1)
@@ -187,13 +200,37 @@ def _check_config(branch_dims: list) -> bool:
     return ok
 
 
+def _check_deterministic() -> bool:
+    torch.manual_seed(0)
+    B, in_dim, d_shared = 8, 32, 16
+    model = DisentangledFusion(in_dim=in_dim, d_shared=d_shared, branch_dims=[20], deterministic=True)
+    h = torch.randn(B, in_dim)
+    z_final, U, losses = model(h)
+
+    ok = True
+    if not torch.isnan(U).all():
+        print("FAIL: deterministic=True should return U as NaN (undefined)")
+        ok = False
+    if losses["L_KL"].item() != 0.0:
+        print(f"FAIL: deterministic=True should have L_KL == 0, got {losses['L_KL'].item()}")
+        ok = False
+    if torch.isnan(z_final).any() or torch.isnan(losses["L_MI"]):
+        print("FAIL: deterministic=True produced NaN in z_final or L_MI")
+        ok = False
+
+    print("PASS: disentangled_fusion (deterministic ablation)" if ok else "FAIL: disentangled_fusion (deterministic ablation)")
+    return ok
+
+
 def _self_test() -> bool:
     # V2 (SU-MedVQA): vision-only, num_branches=1.
     ok_v2 = _check_config(branch_dims=[20])
     # V1 (S-VLG): vision+tabular+graph, num_branches=3.
     ok_v1 = _check_config(branch_dims=[20, 12, 16])
+    # Ablation switch: deterministic=True (no reparameterization/KL/U).
+    ok_det = _check_deterministic()
 
-    ok = ok_v1 and ok_v2
+    ok = ok_v1 and ok_v2 and ok_det
     print("PASS: disentangled_fusion" if ok else "FAIL: disentangled_fusion")
     return ok
 

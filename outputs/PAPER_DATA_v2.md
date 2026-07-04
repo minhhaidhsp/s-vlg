@@ -4,17 +4,18 @@ _Sinh tự động bởi `python scripts/compile_paper_data.py --version v2`. Ch
 
 ## TÓM TẮT TIẾN ĐỘ
 
-- ✅ **Đã đủ (FINAL)**: 0/7
-- 🟡 **Có tạm (provisional)**: 0/7
-- ⬜ **Còn thiếu (THIẾU)**: 7/7
+- ✅ **Đã đủ (FINAL)**: 0/8
+- 🟡 **Có tạm (provisional)**: 8/8
+- ⬜ **Còn thiếu (THIẾU)**: 0/8
 
-- ⬜ Bảng 6 — Hiệu năng tổng thể — MISSING
-- ⬜ Bảng 7 — Phân rã theo nhóm câu hỏi — MISSING
-- ⬜ Bảng 9 — Ablation (RPR-CoAttention + uncertainty) — MISSING
-- ⬜ Bảng 10 — Risk-coverage — MISSING
-- ⬜ Hình 8 — Risk-coverage — MISSING
-- ⬜ Hình 9 — Ablation bar chart — MISSING
-- ⬜ Hình 10 — Attention heatmap — MISSING
+- 🟡 Bảng 6 — Hiệu năng tổng thể — PROVISIONAL
+- 🟡 Bảng 7 — Phân rã theo nhóm câu hỏi — PROVISIONAL
+- 🟡 Bảng 9 — Ablation (RPR-CoAttention + uncertainty) — PROVISIONAL
+- 🟡 Bảng 10 — Risk-coverage — PROVISIONAL
+- 🟡 Bảng 11 — Chi phí tính toán — PROVISIONAL
+- 🟡 Hình 8 — Risk-coverage — PROVISIONAL
+- 🟡 Hình 9 — Ablation bar chart — PROVISIONAL
+- 🟡 Hình 10 — Attention heatmap — PROVISIONAL
 
 ---
 ## Bảng
@@ -22,35 +23,45 @@ _Sinh tự động bởi `python scripts/compile_paper_data.py --version v2`. Ch
 
 ### Bảng 6 — Hiệu năng tổng thể
 
-_(chưa có file: `outputs/tables/v2/table6_overall.json`)_
-
 | model_name | dataset | seeds | trạng thái | vqa_acc | exact_match | bleu4 | precision | recall | f1 | auc_roc |
 |---|---|---|---|---|---|---|---|---|---|---|
-| [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] |
+| SU-MedVQA | vqa-rad+slake | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | None |
+| SU-MedVQA | slake | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | None |
+| SU-MedVQA | vqa-rad | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | None |
 
 ### Bảng 7 — Phân rã theo nhóm câu hỏi
 
-_(chưa có file: `outputs/tables/v2/table7_by_category.json`)_
-
 | model_name | dataset | seeds | trạng thái | vqa_acc | exact_match | f1 |
 |---|---|---|---|---|---|---|
-| [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] |
+| SU-MedVQA | answer_type:CLOSED | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | 0.0000 |
+| SU-MedVQA | answer_type:OPEN | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | [THIẾU] |
+| SU-MedVQA | question_type:unknown | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | 0.0000 |
+| SU-MedVQA | question_type:Organ | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | 0.0000 |
+| SU-MedVQA | question_type:Position | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | [THIẾU] |
+| SU-MedVQA | question_type:KG | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | 0.0000 |
+| SU-MedVQA | question_type:Plane | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | [THIẾU] |
+| SU-MedVQA | question_type:Size | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | 0.0000 |
 
 ### Bảng 9 — Ablation (RPR-CoAttention + uncertainty)
 
-_(chưa có file: `outputs/tables/v2/table9_ablation.json`)_
-
 | variant_name | dataset | seeds | trạng thái | vqa_acc | exact_match | f1 | auc_roc |
 |---|---|---|---|---|---|---|---|
-| [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] |
+| full | vqa-rad+slake | 1 | [TẠM epoch=1] | 0.0000 | 0.0000 | 0.0000 | [THIẾU] |
+| no_rpr | vqa-rad+slake | 1 | [TẠM epoch=1] | 0.0000 | 0.0000 | 0.0000 | [THIẾU] |
+| no_gate | vqa-rad+slake | 1 | [TẠM epoch=1] | 0.0000 | 0.0000 | 0.0000 | [THIẾU] |
+| no_disentangle | vqa-rad+slake | 1 | [TẠM epoch=1] | 0.0000 | 0.0000 | 0.0000 | [THIẾU] |
 
 ### Bảng 10 — Risk-coverage
 
-_(chưa có file: `outputs/tables/v2/table10_risk_coverage.json`)_
-
 | config_name | dataset | seeds | trạng thái | auc |
 |---|---|---|---|---|
-| [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] | [THIẾU] |
+| SU-MedVQA | vqa-rad+slake (full val+test of smoketest subset) | 1 | [TẠM epoch=2] | 0.9667 |
+
+### Bảng 11 — Chi phí tính toán
+
+| model_name | dataset | seeds | trạng thái | train_time_hours | gpu_mem_gb | inference_latency_ms | num_params |
+|---|---|---|---|---|---|---|---|
+| SU-MedVQA | cpu-local (do tren CPU local; can do lai tren GPU Colab de co so FINAL, va num_params la cua mo hinh tiny test_mode, khong phai Qwen+LoRA that) | 1 | [TẠM epoch=2] | 0.0213 | [THIẾU] | 183.8584 | 128708012 |
 
 ---
 ## Hình
@@ -58,17 +69,34 @@ _(chưa có file: `outputs/tables/v2/table10_risk_coverage.json`)_
 
 ### Hình 8 — Risk-coverage
 
-[THIẾU] — chưa có file: `outputs/figures/data/v2/fig8_risk_coverage.json`
+Đã có **1** đường/series dữ liệu:
+
+- **SU-MedVQA** [TẠM epoch=2]: 30 điểm dữ liệu
+
+File dữ liệu thô để vẽ: `outputs/figures/data/v2/fig8_risk_coverage.json`
 
 
 ### Hình 9 — Ablation bar chart
 
-[THIẾU] — chưa có file: `outputs/figures/data/v2/fig9_ablation.json`
+Đã có **4** đường/series dữ liệu:
+
+- **full** [TẠM epoch=1]: 3 điểm dữ liệu
+- **no_rpr** [TẠM epoch=1]: 3 điểm dữ liệu
+- **no_gate** [TẠM epoch=1]: 3 điểm dữ liệu
+- **no_disentangle** [TẠM epoch=1]: 3 điểm dữ liệu
+
+File dữ liệu thô để vẽ: `outputs/figures/data/v2/fig9_ablation.json`
 
 
 ### Hình 10 — Attention heatmap
 
-[THIẾU] — chưa có file: `outputs/figures/data/v2/fig10_attention.json`
+Đã có **3** đường/series dữ liệu:
+
+- **slake: Is this a study of the abdomen?** [TẠM epoch=2]: 196 điểm dữ liệu
+- **slake: Which part of the body does this image belong to?** [TẠM epoch=2]: 196 điểm dữ liệu
+- **slake: Where is the brain edema located?** [TẠM epoch=2]: 196 điểm dữ liệu
+
+File dữ liệu thô để vẽ: `outputs/figures/data/v2/fig10_attention.json`
 
 
 ---
