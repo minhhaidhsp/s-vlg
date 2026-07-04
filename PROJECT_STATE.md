@@ -5,7 +5,7 @@
 > "HƯỚNG DẪN CHO PHIÊN LÀM VIỆC MỚI" ở cuối file trước khi bắt đầu, và cập
 > nhật lại mục 2 + mục 8 (changelog) trước khi kết thúc phiên.
 
-Ngày tạo file: **2026-07-04**.
+Ngày tạo file: **2026-07-04**. Cập nhật lần cuối: **2026-07-04**.
 
 ---
 
@@ -43,8 +43,15 @@ triển thành **HAI bài báo khoa học** từ **chung một codebase**.
 
 | | Trạng thái | Chi tiết |
 |---|---|---|
-| **Version 1 (S-VLG)** | **PENDING** tại ranh giới Giai đoạn 5/6 | Đã xong Giai đoạn 1-5 (khung dự án, framework tiền xử lý, toàn bộ module mô hình, Graph-RAG, ResultsLogger + tách version). **ĐANG CHỜ**: phê duyệt CITI trên PhysioNet để được cấp quyền tải MIMIC-IV/MIMIC-CXR-JPG thật. Khi có dữ liệu thật, tiếp tục Giai đoạn 6 (tiền xử lý MIMIC thật, dựng cohort, xây patient knowledge graph từ dữ liệu thật) rồi Giai đoạn 7-8. |
-| **Version 2 (SU-MedVQA)** | **ĐANG LÀM** | Chạy được ngay vì dùng dữ liệu công khai VQA-RAD/SLAKE (đã tải xong tại `data/raw/vqa-rad/`, `data/raw/slake/`). Đã xong Giai đoạn 1-3, 5 (module lõi dùng chung + `su_medvqa.py` + hạ tầng kết quả). Kế hoạch: chạy trọn Giai đoạn 6-7-8 (không có Giai đoạn 4 — V2 không dùng Graph-RAG). |
+| **Version 1 (S-VLG)** | **PENDING** tại ranh giới Giai đoạn 5/6 | Đã xong Giai đoạn 1-5 (khung dự án, framework tiền xử lý, toàn bộ module mô hình, Graph-RAG, ResultsLogger + tách version, cơ chế kết quả tạm/provisional + checkpoint mỗi epoch). **ĐANG CHỜ**: phê duyệt CITI trên PhysioNet để được cấp quyền tải MIMIC-IV/MIMIC-CXR-JPG thật. Khi có dữ liệu thật, tiếp tục Giai đoạn 6 (tiền xử lý MIMIC thật, dựng cohort, xây patient knowledge graph từ dữ liệu thật) rồi Giai đoạn 7-8. |
+| **Version 2 (SU-MedVQA)** | **ĐANG LÀM** | Chạy được ngay vì dùng dữ liệu công khai VQA-RAD/SLAKE (đã tải xong tại `data/raw/vqa-rad/`, `data/raw/slake/`). Đã xong Giai đoạn 1-3, 5 (module lõi dùng chung + `su_medvqa.py` + hạ tầng kết quả, gồm cả cơ chế provisional). Kế hoạch: chạy trọn Giai đoạn 6-7-8 (không có Giai đoạn 4 — V2 không dùng Graph-RAG). |
+
+**Mới**: đã có cơ chế lấy kết quả TẠM (không cần chờ train đủ 20 epoch × 3
+seed) — xem mục 6 và `PAPER_DATA_MAP.md`. `src/train/train_loop.py` lưu
+checkpoint sau MỖI epoch; `scripts/eval_checkpoint.py --checkpoint <bất kỳ>`
+đánh giá và ghi kết quả với `status="provisional"` + `epochs_trained`;
+`scripts/compile_paper_data.py --version {v1,v2}` gộp mọi số liệu đã có
+thành một file `outputs/PAPER_DATA_{version}.md` để điền bản thảo ngay.
 
 ---
 
@@ -73,7 +80,9 @@ triển thành **HAI bài báo khoa học** từ **chung một codebase**.
 | `src/models/rpr_coattention.py` | Đồng chú ý vị trí tương đối 2D (Eq. 9-14) | Nhận `d`, `k` tổng quát; không giả định V1 hay V2. |
 | `src/models/disentangled_fusion.py` | Hợp nhất biến phân tách biệt (Eq. 21-28) | Đã refactor nhận `branch_dims: list[int]` — `num_branches=1` cho V2 (chỉ vision), `num_branches=3` cho V1 (vision+tabular+graph). Self-test PASS cho cả hai. |
 | `src/models/decoder.py` | Soft-prefix LLM + cổng bất định (Eq. 29-33) | Nhận `z_final_dim` tổng quát, không hardcode số nhánh nguồn gốc của `z_final`. |
-| `src/utils/results_logger.py` | Ghi kết quả thực nghiệm | Nhận `experiment_version="v1"/"v2"`, ghi vào `outputs/tables/{version}/...`. |
+| `src/utils/results_logger.py` | Ghi kết quả thực nghiệm | Nhận `experiment_version="v1"/"v2"`, ghi vào `outputs/tables/{version}/...`; mỗi record có `status` ("provisional"/"final") + `epochs_trained`; `mark_final(...)` nâng cấp record khi đủ epoch×seed. |
+| `src/train/checkpoint_utils.py`, `src/train/train_loop.py` | Lưu/khôi phục checkpoint, vòng train chung | Lưu checkpoint sau MỖI epoch (`{version}_seed{seed}_epoch{N}.pt`), hỗ trợ resume (khôi phục epoch/seed/optimizer state). Dùng chung cho `svlg.py`/`su_medvqa.py` qua tham số `compute_loss_fn`. |
+| `scripts/eval_checkpoint.py` | Đánh giá MỘT checkpoint bất kỳ | Nhận `--checkpoint`, KHÔNG giả định checkpoint cuối; đọc `epochs_trained` từ metadata; ghi qua `ResultsLogger` với `status` suy ra từ `--target-epochs`. |
 | `src/data/vqa_dataset.py` *(kế hoạch, CHƯA tạo)* | Dataset/dataloader thống nhất cho VQA (ảnh, câu hỏi, câu trả lời, evidence) | Sẽ cần khi bước vào Giai đoạn 6-7 huấn luyện thật; hiện `src/data/load_eval_vqa.py` mới chỉ phục vụ đọc VQA-RAD/SLAKE thô. |
 | `src/utils/metrics.py` *(kế hoạch, CHƯA tạo)* | Tính vqa_acc, exact_match, BLEU-4, precision/recall/F1, AUC-ROC dùng chung cho cả 2 bài báo | Sẽ ghi trực tiếp qua `ResultsLogger`, không in console rồi chép tay. |
 
@@ -131,6 +140,31 @@ triển thành **HAI bài báo khoa học** từ **chung một codebase**.
   ```
   In ra markdown sẵn dán vào bản thảo, tách riêng mục "Version 1" và
   "Version 2", ô nào chưa có dữ liệu in `[…]`.
+- **`PAPER_DATA_MAP.md`** (gốc dự án): kịch bản chi tiết — với TỪNG bảng/hình,
+  ghi rõ trường số liệu cần có, script sinh, file JSON, và **train tối thiểu
+  bao nhiêu thì con số đó mới có nghĩa** (vd: Bảng 6 cần >=1 epoch để có số
+  tạm; Risk-coverage bắt buộc eval hết val+test, không được lấy tập con).
+  Kèm mục "Thứ tự ưu tiên lấy số" — số nào lấy trước từ 1 lần train chính,
+  số nào (ablation) phải train riêng nên để sau cùng.
+- **`scripts/compile_paper_data.py --version {v1,v2}`**: đọc TẤT CẢ JSON kết
+  quả của phiên bản đó, sinh **MỘT file duy nhất**
+  `outputs/PAPER_DATA_{version}.md` — đây là file thực sự dùng để điền vào
+  bản thảo, có tóm tắt tiến độ ở đầu và mỗi số kèm nhãn `[FINAL]` /
+  `[TẠM epoch=N]` / `[THIẾU]`. Cập nhật lại bất cứ khi nào có số liệu mới —
+  không sửa tay file này, luôn chạy lại script.
+
+### Quy trình lấy số liệu tạm (provisional) — không cần chờ train xong 20 epoch × 3 seed
+
+1. Train vài epoch (`src/train/train_loop.py` lưu checkpoint sau MỖI epoch).
+2. Chạy `scripts/eval_checkpoint.py --checkpoint <checkpoint bất kỳ> --version
+   {v1,v2} --kind {metrics,ablation,risk_coverage}` — script tự đọc
+   `epochs_trained` từ metadata checkpoint, ghi kết quả qua `ResultsLogger`
+   với `status="provisional"` (hoặc `"final"` nếu đã đạt `--target-epochs`).
+3. Chạy `python scripts/compile_paper_data.py --version {v1,v2}` → sinh/ cập
+   nhật `outputs/PAPER_DATA_{version}.md`.
+4. Điền số vào bản thảo từ file đó (ghi rõ số nào còn `[TẠM]` trong bản nháp).
+5. Khi train xong đủ epoch × seed: gọi `ResultsLogger.mark_final(...)` để
+   nâng record từ provisional lên final, rồi lặp lại bước 3-4.
 
 ---
 
@@ -184,6 +218,28 @@ triển thành **HAI bài báo khoa học** từ **chung một codebase**.
   tách rõ bảng/hình theo version. Toàn bộ self-test (mltm, graph_sage,
   vision_encoder, rpr_coattention, disentangled_fusion ×2 cấu hình, decoder,
   svlg, su_medvqa, results_logger, test_graph_rag) chạy lại PASS sau refactor.
+
+- **2026-07-04 (tiếp)**: Thêm cơ chế lấy kết quả TẠM (provisional) để không
+  phải chờ train xong 20 epoch × 3 seed mới có số điền bản thảo. Tạo
+  `PAPER_DATA_MAP.md` (kịch bản số liệu chi tiết cho từng bảng/hình, kèm mục
+  "train tối thiểu bao nhiêu để có nghĩa" và thứ tự ưu tiên lấy số).
+  `ResultsLogger` thêm `status`/`epochs_trained` vào mỗi record (mặc định
+  `"provisional"`) và hàm `mark_final(...)` để nâng cấp khi đủ dữ liệu.
+  Thêm `src/train/checkpoint_utils.py` + `src/train/train_loop.py` (lưu
+  checkpoint sau MỖI epoch, hỗ trợ resume — tự test bằng SU_MedVQA tiny-mode,
+  xác nhận resume tiếp đúng epoch/seed/optimizer). Thêm
+  `scripts/eval_checkpoint.py` (đánh giá một checkpoint bất kỳ qua
+  `--checkpoint`, không giả định checkpoint cuối, log `epochs_trained` thật
+  từ metadata — đã test cả 3 `--kind` metrics/ablation/risk_coverage trên
+  checkpoint thật, thư mục output tách biệt để không đụng `outputs/tables/`
+  thật). Thêm `scripts/compile_paper_data.py --version {v1,v2}` gộp mọi JSON
+  kết quả của phiên bản đó thành `outputs/PAPER_DATA_{version}.md` (tóm tắt
+  tiến độ + nhãn `[FINAL]`/`[TẠM epoch=N]`/`[THIẾU]` từng ô) — đã chạy thử
+  cho cả v1/v2, đúng như dự kiến gần như toàn bộ `[THIẾU]` vì chưa có
+  thực nghiệm thật. Sửa `configs/config.yaml`: `model.vit_name` từ `null`
+  sang `"vit_base_patch16_224"` (giá trị `null` khiến `.get(key, default)`
+  trả `None` thay vì fallback — bug lộ ra khi dùng config thật qua
+  `load_version_config` lần đầu, không phải khi test bằng dict tự tạo).
 
 ---
 

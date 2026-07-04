@@ -16,7 +16,7 @@ data:
   seed:
 
 model:
-  vit_name:
+  vit_name: "vit_base_patch16_224"
   llm_name: "Qwen/Qwen2.5-3B-Instruct"
   lora_r: 16
   lora_alpha: 32

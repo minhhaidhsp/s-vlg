@@ -164,17 +164,27 @@ class ResultsLogger:
         seed: int = None,
         dataset: str = None,
         config: dict = None,
+        status: str = "provisional",
+        epochs_trained: int = None,
     ) -> Path:
         """Append one metrics record for a model-comparison table (e.g. Table
         6/7/8/11 — see outputs/tables/MANIFEST.md for the exact mapping).
 
         `table_id` is the output file stem, e.g. "table6_overall".
+
+        `status` is "provisional" (default — e.g. an early checkpoint, 1-2
+        epochs in) or "final" (full training budget reached). `epochs_trained`
+        records how many epochs the checkpoint this number came from has seen,
+        so a provisional number is always traceable to how "done" it is. Use
+        `mark_final(...)` to promote an existing record once training completes.
         """
         path = self.tables_dir / f"{table_id}.json"
         record = {
             "model_name": model_name,
             "metrics": dict(metrics_dict),
             "seed": seed,
+            "status": status,
+            "epochs_trained": epochs_trained,
             **self._make_metadata(dataset, config, seed),
         }
         return self._append_and_save(path, table_id, record, key_field="model_name")
@@ -186,14 +196,21 @@ class ResultsLogger:
         seed: int = None,
         dataset: str = None,
         config: dict = None,
+        status: str = "provisional",
+        epochs_trained: int = None,
     ) -> Path:
-        """Append one ablation-variant record — Table 9 (8 variants)."""
+        """Append one ablation-variant record — Table 9 (8 variants).
+
+        See `log_metrics` for `status`/`epochs_trained` semantics.
+        """
         table_id = "table9_ablation"
         path = self.tables_dir / f"{table_id}.json"
         record = {
             "variant_name": variant_name,
             "metrics": dict(metrics_dict),
             "seed": seed,
+            "status": status,
+            "epochs_trained": epochs_trained,
             **self._make_metadata(dataset, config, seed),
         }
         return self._append_and_save(path, table_id, record, key_field="variant_name")
@@ -207,6 +224,8 @@ class ResultsLogger:
         seed: int = None,
         dataset: str = None,
         config: dict = None,
+        status: str = "provisional",
+        epochs_trained: int = None,
     ) -> Path:
         """Append one risk-coverage curve — Table 10 (AUC) + Figure 8 (curve).
 
@@ -215,6 +234,9 @@ class ResultsLogger:
         usual mean/std seed aggregation). This call also mirrors the curve
         into `outputs/figures/data/fig8_risk_coverage.json` via
         `log_curve_data`, so Table 10 and Figure 8 can never drift apart.
+        See `log_metrics` for `status`/`epochs_trained` semantics — risk-
+        coverage should only ever be computed over the FULL val/test split,
+        never a subset, even for a provisional/early-checkpoint number.
         """
         table_id = "table10_risk_coverage"
         path = self.tables_dir / f"{table_id}.json"
@@ -224,6 +246,8 @@ class ResultsLogger:
             "risk_values": list(risk_values),
             "metrics": {"auc": auc},
             "seed": seed,
+            "status": status,
+            "epochs_trained": epochs_trained,
             **self._make_metadata(dataset, config, seed),
         }
         result_path = self._append_and_save(path, table_id, record, key_field="config_name")
@@ -236,6 +260,8 @@ class ResultsLogger:
             seed=seed,
             dataset=dataset,
             config=config,
+            status=status,
+            epochs_trained=epochs_trained,
         )
         return result_path
 
@@ -248,6 +274,8 @@ class ResultsLogger:
         seed: int = None,
         dataset: str = None,
         config: dict = None,
+        status: str = "provisional",
+        epochs_trained: int = None,
     ) -> Path:
         """Append one raw (x, y) curve series for a figure (PR/ROC, risk-
         coverage, ablation bar, ...) under outputs/figures/data/{curve_id}.json.
@@ -260,9 +288,64 @@ class ResultsLogger:
             "x": list(x),
             "y": list(y),
             "seed": seed,
+            "status": status,
+            "epochs_trained": epochs_trained,
             **self._make_metadata(dataset, config, seed),
         }
         data.setdefault("records", []).append(record)
+        self._save(path, data)
+        return path
+
+    def mark_final(
+        self,
+        table_id: str,
+        key_value: str,
+        key_field: str = "model_name",
+        seed: int = None,
+        dataset: str = None,
+    ) -> Path:
+        """Promote matching record(s) in outputs/tables/{table_id}.json from
+        "provisional" to "final" — call once training/eval has reached the
+        full budget (e.g. 20 epochs x 3 seeds) for that (key_value, dataset).
+
+        Args:
+            table_id: file stem, e.g. "table6_overall", "table9_ablation".
+            key_value: the value to match (a model_name, variant_name, or
+                config_name, depending on which table this is).
+            key_field: which field `key_value` refers to — "model_name"
+                (Table 6/7/8/11), "variant_name" (Table 9), or "config_name"
+                (Table 10). Defaults to "model_name".
+            seed: if given, only mark the record for this exact seed as
+                final; if None, mark ALL matching records (every seed) final.
+            dataset: if given, only match records for this dataset.
+
+        Raises:
+            FileNotFoundError: if the table file doesn't exist yet.
+            ValueError: if no record matches (key_value, dataset, seed).
+        """
+        path = self.tables_dir / f"{table_id}.json"
+        if not path.exists():
+            raise FileNotFoundError(f"{path} does not exist — nothing logged for {table_id!r} yet")
+
+        data = self._load(path)
+        matched = False
+        for r in data.get("records", []):
+            if r.get(key_field) != key_value:
+                continue
+            if dataset is not None and r.get("dataset") != dataset:
+                continue
+            if seed is not None and r.get("seed") != seed:
+                continue
+            r["status"] = "final"
+            matched = True
+
+        if not matched:
+            raise ValueError(
+                f"No record found in {path} matching {key_field}={key_value!r}, "
+                f"dataset={dataset!r}, seed={seed!r}"
+            )
+
+        data["aggregates"] = self._aggregate(data["records"], key_field=key_field)
         self._save(path, data)
         return path
 
@@ -322,11 +405,41 @@ def _self_test() -> bool:
             print("FAIL: config snapshot missing/incorrect seed")
             ok = False
 
+        # --- status/epochs_trained default to provisional/None ---
+        if rec0.get("status") != "provisional":
+            print(f"FAIL: default status should be 'provisional', got {rec0.get('status')!r}")
+            ok = False
+        if rec0.get("epochs_trained") is not None:
+            print(f"FAIL: default epochs_trained should be None, got {rec0.get('epochs_trained')!r}")
+            ok = False
+
         # --- log_ablation, single seed -> no aggregation expected ---
-        logger.log_ablation("full_model", {"vqa_acc": 0.81}, seed=0, dataset="mimic-test")
+        logger.log_ablation(
+            "full_model", {"vqa_acc": 0.81}, seed=0, dataset="mimic-test",
+            status="provisional", epochs_trained=2,
+        )
         data9 = json.loads((logger.tables_dir / "table9_ablation.json").read_text(encoding="utf-8"))
         if data9["aggregates"]:
             print("FAIL: expected no aggregates with a single seed")
+            ok = False
+        if data9["records"][0].get("epochs_trained") != 2:
+            print("FAIL: epochs_trained not recorded correctly for log_ablation")
+            ok = False
+
+        # --- mark_final promotes a provisional record ---
+        logger.mark_final("table9_ablation", key_value="full_model", key_field="variant_name", seed=0)
+        data9_after = json.loads((logger.tables_dir / "table9_ablation.json").read_text(encoding="utf-8"))
+        if data9_after["records"][0].get("status") != "final":
+            print("FAIL: mark_final did not promote the record to 'final'")
+            ok = False
+
+        mark_final_raised = False
+        try:
+            logger.mark_final("table9_ablation", key_value="nonexistent_variant", key_field="variant_name")
+        except ValueError:
+            mark_final_raised = True
+        if not mark_final_raised:
+            print("FAIL: mark_final should raise ValueError for a non-matching key_value")
             ok = False
 
         # --- log_risk_coverage + auto-mirrored figure data ---
