@@ -3,15 +3,15 @@
     {
       "model_name": "SU-MedVQA",
       "metrics": {
-        "vqa_acc": 0.0,
-        "exact_match": 0.0,
+        "vqa_acc": 0.2727272727272727,
+        "exact_match": 0.2727272727272727,
         "f1": 0.0
       },
       "seed": 0,
       "status": "provisional",
       "epochs_trained": 2,
-      "timestamp": "2026-07-04T15:11:33.002076+00:00",
-      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "timestamp": "2026-07-04T15:48:00.259205+00:00",
+      "git_commit": "2ed0d3efe76f6a09ca46e643d0ca84283fef45f4",
       "experiment_version": "v2",
       "dataset": "answer_type:CLOSED",
       "config": {
@@ -27,8 +27,8 @@
       "seed": 0,
       "status": "provisional",
       "epochs_trained": 2,
-      "timestamp": "2026-07-04T15:11:33.015158+00:00",
-      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "timestamp": "2026-07-04T15:48:00.272831+00:00",
+      "git_commit": "2ed0d3efe76f6a09ca46e643d0ca84283fef45f4",
       "experiment_version": "v2",
       "dataset": "answer_type:OPEN",
       "config": {
@@ -38,15 +38,15 @@
     {
       "model_name": "SU-MedVQA",
       "metrics": {
-        "vqa_acc": 0.0,
-        "exact_match": 0.0,
+        "vqa_acc": 0.25,
+        "exact_match": 0.25,
         "f1": 0.0
       },
       "seed": 0,
       "status": "provisional",
       "epochs_trained": 2,
-      "timestamp": "2026-07-04T15:11:33.035446+00:00",
-      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "timestamp": "2026-07-04T15:48:00.294291+00:00",
+      "git_commit": "2ed0d3efe76f6a09ca46e643d0ca84283fef45f4",
       "experiment_version": "v2",
       "dataset": "question_type:unknown",
       "config": {
@@ -63,8 +63,8 @@
       "seed": 0,
       "status": "provisional",
       "epochs_trained": 2,
-      "timestamp": "2026-07-04T15:11:33.057162+00:00",
-      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "timestamp": "2026-07-04T15:48:00.316544+00:00",
+      "git_commit": "2ed0d3efe76f6a09ca46e643d0ca84283fef45f4",
       "experiment_version": "v2",
       "dataset": "question_type:Organ",
       "config": {
@@ -80,8 +80,8 @@
       "seed": 0,
       "status": "provisional",
       "epochs_trained": 2,
-      "timestamp": "2026-07-04T15:11:33.076245+00:00",
-      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "timestamp": "2026-07-04T15:48:00.337233+00:00",
+      "git_commit": "2ed0d3efe76f6a09ca46e643d0ca84283fef45f4",
       "experiment_version": "v2",
       "dataset": "question_type:Position",
       "config": {
@@ -98,8 +98,8 @@
       "seed": 0,
       "status": "provisional",
       "epochs_trained": 2,
-      "timestamp": "2026-07-04T15:11:33.097493+00:00",
-      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "timestamp": "2026-07-04T15:48:00.358558+00:00",
+      "git_commit": "2ed0d3efe76f6a09ca46e643d0ca84283fef45f4",
       "experiment_version": "v2",
       "dataset": "question_type:KG",
       "config": {
@@ -115,8 +115,8 @@
       "seed": 0,
       "status": "provisional",
       "epochs_trained": 2,
-      "timestamp": "2026-07-04T15:11:33.116891+00:00",
-      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "timestamp": "2026-07-04T15:48:00.377608+00:00",
+      "git_commit": "2ed0d3efe76f6a09ca46e643d0ca84283fef45f4",
       "experiment_version": "v2",
       "dataset": "question_type:Plane",
       "config": {
@@ -133,8 +133,8 @@
       "seed": 0,
       "status": "provisional",
       "epochs_trained": 2,
-      "timestamp": "2026-07-04T15:11:33.138112+00:00",
-      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "timestamp": "2026-07-04T15:48:00.400297+00:00",
+      "git_commit": "2ed0d3efe76f6a09ca46e643d0ca84283fef45f4",
       "experiment_version": "v2",
       "dataset": "question_type:Size",
       "config": {

@@ -3,15 +3,15 @@
     {
       "model_name": "SU-MedVQA",
       "metrics": {
-        "train_time_hours": 0.021326514614952934,
-        "inference_latency_ms": 183.85839462280273,
+        "train_time_hours": 0.015778092741966246,
+        "inference_latency_ms": 173.88510704040527,
         "num_params": 128708012
       },
       "seed": 0,
       "status": "provisional",
       "epochs_trained": 2,
-      "timestamp": "2026-07-04T15:11:37.573375+00:00",
-      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "timestamp": "2026-07-04T15:48:05.333634+00:00",
+      "git_commit": "2ed0d3efe76f6a09ca46e643d0ca84283fef45f4",
       "experiment_version": "v2",
       "dataset": "cpu-local (do tren CPU local; can do lai tren GPU Colab de co so FINAL, va num_params la cua mo hinh tiny test_mode, khong phai Qwen+LoRA that)",
       "config": {

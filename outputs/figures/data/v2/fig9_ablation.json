@@ -8,15 +8,15 @@
         "f1"
       ],
       "y": [
-        0.0,
-        0.0,
-        0.0
+        0.19047619047619047,
+        0.19047619047619047,
+        0.25
       ],
       "seed": 0,
       "status": "provisional",
       "epochs_trained": 1,
-      "timestamp": "2026-07-04T15:12:11.366628+00:00",
-      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "timestamp": "2026-07-04T15:48:35.599429+00:00",
+      "git_commit": "2ed0d3efe76f6a09ca46e643d0ca84283fef45f4",
       "experiment_version": "v2",
       "dataset": "vqa-rad+slake",
       "config": {
@@ -31,15 +31,15 @@
         "f1"
       ],
       "y": [
-        0.0,
-        0.0,
-        0.0
+        0.19047619047619047,
+        0.19047619047619047,
+        0.25
       ],
       "seed": 0,
       "status": "provisional",
       "epochs_trained": 1,
-      "timestamp": "2026-07-04T15:13:07.801949+00:00",
-      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "timestamp": "2026-07-04T15:49:08.884600+00:00",
+      "git_commit": "2ed0d3efe76f6a09ca46e643d0ca84283fef45f4",
       "experiment_version": "v2",
       "dataset": "vqa-rad+slake",
       "config": {
@@ -54,15 +54,15 @@
         "f1"
       ],
       "y": [
-        0.0,
-        0.0,
-        0.0
+        0.19047619047619047,
+        0.19047619047619047,
+        0.25
       ],
       "seed": 0,
       "status": "provisional",
       "epochs_trained": 1,
-      "timestamp": "2026-07-04T15:13:48.954989+00:00",
-      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "timestamp": "2026-07-04T15:49:45.463483+00:00",
+      "git_commit": "2ed0d3efe76f6a09ca46e643d0ca84283fef45f4",
       "experiment_version": "v2",
       "dataset": "vqa-rad+slake",
       "config": {
@@ -77,15 +77,15 @@
         "f1"
       ],
       "y": [
-        0.0,
-        0.0,
-        0.0
+        0.19047619047619047,
+        0.19047619047619047,
+        0.25
       ],
       "seed": 0,
       "status": "provisional",
       "epochs_trained": 1,
-      "timestamp": "2026-07-04T15:14:31.927698+00:00",
-      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "timestamp": "2026-07-04T15:50:18.594036+00:00",
+      "git_commit": "2ed0d3efe76f6a09ca46e643d0ca84283fef45f4",
       "experiment_version": "v2",
       "dataset": "vqa-rad+slake",
       "config": {

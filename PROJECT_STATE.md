@@ -274,6 +274,53 @@ thành một file `outputs/PAPER_DATA_{version}.md` để điền bản thảo n
   - Cập nhật `MANIFEST.md`/`PAPER_DATA_MAP.md`: thêm Bảng 11 cho V2 (trước
     đó ghi nhầm là "V1 riêng").
 
+- **2026-07-04 (tiếp 3)**: Sửa lỗi `vqa_acc = 0.0000` tuyệt đối trên MỌI
+  nhóm (kể cả `answer_type:CLOSED`) phát hiện từ smoke test V2. **Chẩn đoán**
+  (script `scripts/diagnose_metrics.py`, in 20 ví dụ thật): KHÔNG phải lỗi
+  hàm chấm điểm — `src/eval/metrics.py` đã decode token→text đúng trước khi
+  so khớp. Nguyên nhân thật: `decoder.generate()` dùng greedy decoding
+  (`do_sample=False`) trên `tiny-gpt2` (test_mode) bị **suy biến**, luôn
+  sinh y hệt `" stairs stairs stairs..."` cho MỌI câu hỏi bất kể input —
+  do `tiny-gpt2` có `n_embd=2`, gần như không đủ năng lực biểu diễn để phân
+  biệt ngữ cảnh, decode theo argmax luôn hội tụ về cùng 1 token. Đây đúng là
+  lỗi ở bước generate như task đã dự đoán trước, không phải lỗi so khớp.
+  **Sửa**:
+  - `src/eval/metrics.py`: thêm `normalize_vqa_answer` (bỏ dấu câu, mạo từ
+    a/an/the, gộp khoảng trắng) dùng cho `vqa_accuracy` (chuẩn VQA, khoan
+    dung hơn); `exact_match` giữ nguyên strict (chỉ lowercase+strip).
+    `closed_question_prf1_auc` cũng dùng `normalize_vqa_answer` để bền hơn
+    với dấu câu thừa.
+  - `src/models/decoder.py`: thêm `VQADecoder.predict_closed(...)` — với câu
+    hỏi CLOSED (yes/no), so sánh trực tiếp log-probability token kế tiếp cho
+    "yes" vs "no" (không generate tự do), tránh hoàn toàn kiểu suy biến trên.
+    Đây là cách đánh giá câu hỏi nhị phân chuẩn trong VQA, không phải cách
+    né lỗi.
+  - `scripts/run_smoketest_v2.py`: `evaluate()` định tuyến câu hỏi CLOSED
+    qua `predict_closed`, câu hỏi OPEN vẫn qua `generate()` (cổng bất định
+    áp dụng đồng nhất trước khi định tuyến).
+  - Chạy lại `run_smoketest_v2.py --n 50 --epochs 2`: **Bảng 7
+    `answer_type:CLOSED` vqa_acc = 0.2727** (không còn 0 tuyệt đối, đúng dải
+    kỳ vọng ~30-60% dù hơi thấp do model quá nhỏ/1-2 epoch); `OPEN` vẫn thấp
+    (bình thường, generate() vẫn suy biến cho câu mở — không ảnh hưởng vì
+    câu mở vốn khó, không kỳ vọng ~50% như nhị phân).
+  - **Kiểm tra biến thể ablation**: cả 4 biến thể (full/no_rpr/no_gate/
+    no_disentangle) vẫn cho đúng CÙNG một số `vqa_acc=0.190476...` và
+    predictions per-sample **giống hệt bit-for-bit**. Đã xác minh RIÊNG
+    (không qua training) rằng `use_rel_pos_bias`/`disentangle_deterministic`
+    THẬT SỰ thay đổi `z_final` (chênh lệch tuyệt đối 2-4, không phải do cờ
+    bị bỏ qua) và `U` đúng là `NaN` khi `deterministic=True`. Nguyên nhân số
+    trùng nhau: **nghẽn cổ chai ở chính decoder `tiny-gpt2` (`n_embd=2`)** —
+    với hidden dim quá nhỏ và chỉ 1 epoch train, khác biệt kiến trúc thượng
+    nguồn không đủ mạnh để lật quyết định yes/no cuối cùng của LM. Đây là
+    giới hạn cố hữu của việc dùng tiny-gpt2 cho smoke test (đúng mục đích
+    thiết kế ban đầu: "chỉ test shape, không kỳ vọng chất lượng"), KHÔNG
+    phải lỗi cờ ablation — không cố "sửa" thêm gì ở đây; ablation có ý nghĩa
+    thống kê thật sự sẽ cần chạy trên Qwen2.5+LoRA thật (Giai đoạn 6-7-8,
+    GPU Colab), như kế hoạch đã ghi.
+  - Xóa checkpoint smoke test cũ, giữ lại `scripts/diagnose_metrics.py` làm
+    công cụ debug (in câu hỏi/đáp án chuẩn/đáp án sinh ra/đúng-sai từ một
+    checkpoint bất kỳ) cho các lần chẩn đoán sau này.
+
 ---
 
 ## Hướng dẫn cho phiên làm việc mới

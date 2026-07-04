@@ -239,6 +239,65 @@ class VQADecoder(nn.Module):
                 })
         return results
 
+    @torch.no_grad()
+    def predict_closed(
+        self,
+        z_final: torch.Tensor,
+        system_text: str,
+        evidence_text: str,
+        question_text: str,
+    ) -> list:
+        """Forced binary choice ("yes"/"no") for CLOSED questions.
+
+        Free-form generation (generate()) can degenerate on a small/under-
+        trained LLM: greedy decoding may collapse to the SAME output
+        regardless of input (observed with the tiny test_mode backbone —
+        see PROJECT_STATE.md changelog), which silently zeroes out accuracy
+        on binary questions and looks like a scoring bug when it's actually
+        a generation-collapse issue. For CLOSED questions, comparing the
+        next-token log-probability mass assigned to "yes"-like vs "no"-like
+        tokens directly is both more robust to this failure mode and the
+        standard way closed/binary VQA questions are typically evaluated.
+
+        Returns a list of "yes"/"no" strings, one per batch sample (the
+        uncertainty gate is NOT applied here — callers should still check
+        U/gamma themselves if a cautious fallback is desired).
+        """
+        device = next(self.llm.parameters()).device
+        B = z_final.shape[0]
+
+        P_z = self.project_prefix(z_final)
+        prefix_mask = torch.ones(B, P_z.shape[1], dtype=torch.long, device=device)
+        sys_embeds, _, sys_mask = self._embed_text(system_text, B, device)
+        evid_embeds, _, evid_mask = self._embed_text(evidence_text, B, device)
+        ques_embeds, _, ques_mask = self._embed_text(question_text, B, device)
+
+        prompt_embeds = torch.cat([P_z, sys_embeds, evid_embeds, ques_embeds], dim=1)
+        attention_mask = torch.cat([prefix_mask, sys_mask, evid_mask, ques_mask], dim=1)
+
+        out = self.llm(inputs_embeds=prompt_embeds, attention_mask=attention_mask)
+        next_token_log_probs = torch.log_softmax(out.logits[:, -1, :], dim=-1)  # [B, vocab]
+
+        yes_ids = self._single_token_ids(["yes", " yes", "Yes", " Yes"])
+        no_ids = self._single_token_ids(["no", " no", "No", " No"])
+
+        yes_score = torch.logsumexp(next_token_log_probs[:, yes_ids], dim=-1)
+        no_score = torch.logsumexp(next_token_log_probs[:, no_ids], dim=-1)
+
+        return ["yes" if y > n else "no" for y, n in zip(yes_score.tolist(), no_score.tolist())]
+
+    def _single_token_ids(self, variants: list) -> list:
+        """Encodes each string in `variants` and keeps only those that map to
+        exactly one token id (skips any that split into multiple sub-tokens)."""
+        ids = set()
+        for v in variants:
+            enc = self.tokenizer.encode(v)
+            if len(enc) == 1:
+                ids.add(enc[0])
+        if not ids:
+            raise ValueError(f"None of {variants} tokenize to a single token with this tokenizer")
+        return sorted(ids)
+
 
 def _self_test() -> bool:
     torch.manual_seed(0)
@@ -287,6 +346,17 @@ def _self_test() -> bool:
         ok = False
     if results[1]["answer"] != decoder.CAUTIOUS_ANSWER:
         print("FAIL: high-U sample did not receive the cautious fallback answer")
+        ok = False
+
+    # 4) forced binary choice for CLOSED questions — must always return
+    # "yes"/"no" (never degenerate free-text) and be deterministic.
+    closed_preds_1 = decoder.predict_closed(z_final, system_text, evidence_text, "Is the liver normal?")
+    closed_preds_2 = decoder.predict_closed(z_final, system_text, evidence_text, "Is the liver normal?")
+    if len(closed_preds_1) != B or any(p not in ("yes", "no") for p in closed_preds_1):
+        print(f"FAIL: predict_closed returned invalid values: {closed_preds_1}")
+        ok = False
+    if closed_preds_1 != closed_preds_2:
+        print(f"FAIL: predict_closed is not deterministic: {closed_preds_1} != {closed_preds_2}")
         ok = False
 
     print("PASS: decoder" if ok else "FAIL: decoder")

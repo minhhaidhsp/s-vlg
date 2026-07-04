@@ -25,17 +25,17 @@ _Sinh tự động bởi `python scripts/compile_paper_data.py --version v2`. Ch
 
 | model_name | dataset | seeds | trạng thái | vqa_acc | exact_match | bleu4 | precision | recall | f1 | auc_roc |
 |---|---|---|---|---|---|---|---|---|---|---|
-| SU-MedVQA | vqa-rad+slake | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | None |
+| SU-MedVQA | vqa-rad+slake | 1 | [TẠM epoch=2] | 0.1429 | 0.1429 | 0.7038 | 0.0000 | 0.0000 | 0.0000 | None |
 | SU-MedVQA | slake | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | None |
-| SU-MedVQA | vqa-rad | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | None |
+| SU-MedVQA | vqa-rad | 1 | [TẠM epoch=2] | 0.2500 | 0.2500 | 1.1762 | 0.0000 | 0.0000 | 0.0000 | None |
 
 ### Bảng 7 — Phân rã theo nhóm câu hỏi
 
 | model_name | dataset | seeds | trạng thái | vqa_acc | exact_match | f1 |
 |---|---|---|---|---|---|---|
-| SU-MedVQA | answer_type:CLOSED | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | 0.0000 |
+| SU-MedVQA | answer_type:CLOSED | 1 | [TẠM epoch=2] | 0.2727 | 0.2727 | 0.0000 |
 | SU-MedVQA | answer_type:OPEN | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | [THIẾU] |
-| SU-MedVQA | question_type:unknown | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | 0.0000 |
+| SU-MedVQA | question_type:unknown | 1 | [TẠM epoch=2] | 0.2500 | 0.2500 | 0.0000 |
 | SU-MedVQA | question_type:Organ | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | 0.0000 |
 | SU-MedVQA | question_type:Position | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | [THIẾU] |
 | SU-MedVQA | question_type:KG | 1 | [TẠM epoch=2] | 0.0000 | 0.0000 | 0.0000 |
@@ -46,22 +46,22 @@ _Sinh tự động bởi `python scripts/compile_paper_data.py --version v2`. Ch
 
 | variant_name | dataset | seeds | trạng thái | vqa_acc | exact_match | f1 | auc_roc |
 |---|---|---|---|---|---|---|---|
-| full | vqa-rad+slake | 1 | [TẠM epoch=1] | 0.0000 | 0.0000 | 0.0000 | [THIẾU] |
-| no_rpr | vqa-rad+slake | 1 | [TẠM epoch=1] | 0.0000 | 0.0000 | 0.0000 | [THIẾU] |
-| no_gate | vqa-rad+slake | 1 | [TẠM epoch=1] | 0.0000 | 0.0000 | 0.0000 | [THIẾU] |
-| no_disentangle | vqa-rad+slake | 1 | [TẠM epoch=1] | 0.0000 | 0.0000 | 0.0000 | [THIẾU] |
+| full | vqa-rad+slake | 1 | [TẠM epoch=1] | 0.1905 | 0.1905 | 0.2500 | [THIẾU] |
+| no_rpr | vqa-rad+slake | 1 | [TẠM epoch=1] | 0.1905 | 0.1905 | 0.2500 | [THIẾU] |
+| no_gate | vqa-rad+slake | 1 | [TẠM epoch=1] | 0.1905 | 0.1905 | 0.2500 | [THIẾU] |
+| no_disentangle | vqa-rad+slake | 1 | [TẠM epoch=1] | 0.1905 | 0.1905 | 0.2500 | [THIẾU] |
 
 ### Bảng 10 — Risk-coverage
 
 | config_name | dataset | seeds | trạng thái | auc |
 |---|---|---|---|---|
-| SU-MedVQA | vqa-rad+slake (full val+test of smoketest subset) | 1 | [TẠM epoch=2] | 0.9667 |
+| SU-MedVQA | vqa-rad+slake (full val+test of smoketest subset) | 1 | [TẠM epoch=2] | 0.9447 |
 
 ### Bảng 11 — Chi phí tính toán
 
 | model_name | dataset | seeds | trạng thái | train_time_hours | gpu_mem_gb | inference_latency_ms | num_params |
 |---|---|---|---|---|---|---|---|
-| SU-MedVQA | cpu-local (do tren CPU local; can do lai tren GPU Colab de co so FINAL, va num_params la cua mo hinh tiny test_mode, khong phai Qwen+LoRA that) | 1 | [TẠM epoch=2] | 0.0213 | [THIẾU] | 183.8584 | 128708012 |
+| SU-MedVQA | cpu-local (do tren CPU local; can do lai tren GPU Colab de co so FINAL, va num_params la cua mo hinh tiny test_mode, khong phai Qwen+LoRA that) | 1 | [TẠM epoch=2] | 0.0158 | [THIẾU] | 173.8851 | 128708012 |
 
 ---
 ## Hình

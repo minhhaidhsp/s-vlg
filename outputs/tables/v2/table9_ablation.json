@@ -3,15 +3,15 @@
     {
       "variant_name": "full",
       "metrics": {
-        "vqa_acc": 0.0,
-        "exact_match": 0.0,
-        "f1": 0.0
+        "vqa_acc": 0.19047619047619047,
+        "exact_match": 0.19047619047619047,
+        "f1": 0.25
       },
       "seed": 0,
       "status": "provisional",
       "epochs_trained": 1,
-      "timestamp": "2026-07-04T15:12:11.346316+00:00",
-      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "timestamp": "2026-07-04T15:48:35.586079+00:00",
+      "git_commit": "2ed0d3efe76f6a09ca46e643d0ca84283fef45f4",
       "experiment_version": "v2",
       "dataset": "vqa-rad+slake",
       "config": {
@@ -21,15 +21,15 @@
     {
       "variant_name": "no_rpr",
       "metrics": {
-        "vqa_acc": 0.0,
-        "exact_match": 0.0,
-        "f1": 0.0
+        "vqa_acc": 0.19047619047619047,
+        "exact_match": 0.19047619047619047,
+        "f1": 0.25
       },
       "seed": 0,
       "status": "provisional",
       "epochs_trained": 1,
-      "timestamp": "2026-07-04T15:13:06.608205+00:00",
-      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "timestamp": "2026-07-04T15:49:08.834734+00:00",
+      "git_commit": "2ed0d3efe76f6a09ca46e643d0ca84283fef45f4",
       "experiment_version": "v2",
       "dataset": "vqa-rad+slake",
       "config": {
@@ -39,15 +39,15 @@
     {
       "variant_name": "no_gate",
       "metrics": {
-        "vqa_acc": 0.0,
-        "exact_match": 0.0,
-        "f1": 0.0
+        "vqa_acc": 0.19047619047619047,
+        "exact_match": 0.19047619047619047,
+        "f1": 0.25
       },
       "seed": 0,
       "status": "provisional",
       "epochs_trained": 1,
-      "timestamp": "2026-07-04T15:13:48.845573+00:00",
-      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "timestamp": "2026-07-04T15:49:45.435243+00:00",
+      "git_commit": "2ed0d3efe76f6a09ca46e643d0ca84283fef45f4",
       "experiment_version": "v2",
       "dataset": "vqa-rad+slake",
       "config": {
@@ -57,15 +57,15 @@
     {
       "variant_name": "no_disentangle",
       "metrics": {
-        "vqa_acc": 0.0,
-        "exact_match": 0.0,
-        "f1": 0.0
+        "vqa_acc": 0.19047619047619047,
+        "exact_match": 0.19047619047619047,
+        "f1": 0.25
       },
       "seed": 0,
       "status": "provisional",
       "epochs_trained": 1,
-      "timestamp": "2026-07-04T15:14:31.821271+00:00",
-      "git_commit": "9a6e4bb92c8b37655c3b78917c47214f94796d77",
+      "timestamp": "2026-07-04T15:50:18.563208+00:00",
+      "git_commit": "2ed0d3efe76f6a09ca46e643d0ca84283fef45f4",
       "experiment_version": "v2",
       "dataset": "vqa-rad+slake",
       "config": {

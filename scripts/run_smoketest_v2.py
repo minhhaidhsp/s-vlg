@@ -69,8 +69,20 @@ def make_loss_fn(config: dict, epoch_for_kl_anneal: int = 1):
 
 @torch.no_grad()
 def evaluate(model, dataloader, gamma_override: float = None) -> dict:
-    """Runs generation over every batch in `dataloader`, returns per-sample
-    lists: preds, refs, answer_types, question_types, sources, uncertainties, correct_flags."""
+    """Runs evaluation over every batch in `dataloader`, returns per-sample
+    lists: preds, refs, answer_types, question_types, sources, uncertainties, correct_flags.
+
+    CLOSED (yes/no) questions are answered via decoder.predict_closed — a
+    forced binary choice comparing next-token log-probability for "yes" vs
+    "no" directly — instead of free-form generate(). Free generation can
+    degenerate on a small/under-trained model (greedy decoding collapsing to
+    the SAME output regardless of input, observed with the tiny test_mode
+    backbone), which silently zeroes out CLOSED-question accuracy and looks
+    like a scoring bug rather than a generation failure mode. OPEN questions
+    still use generate() (no such forced-choice shortcut exists for them).
+    The uncertainty gate (Eq. 32) is still applied uniformly, before this
+    OPEN/CLOSED dispatch.
+    """
     model.eval()
     preds, refs, answer_types, question_types, sources, uncertainties = [], [], [], [], [], []
 
@@ -80,11 +92,33 @@ def evaluate(model, dataloader, gamma_override: float = None) -> dict:
             system_text=SYSTEM_TEXT, answer_text=None,
         )
         gamma = gamma_override if gamma_override is not None else model.decoder.gamma
-        results = model.decoder.generate(
-            z_final, U, system_text=SYSTEM_TEXT, evidence_text="",
-            question_text=batch["question_text"], gamma=gamma, max_new_tokens=8,
-        )
-        preds.extend(r["answer"] for r in results)
+        B = z_final.shape[0]
+        needs_review = U > gamma
+
+        batch_preds = [None] * B
+
+        gated_idx = [i for i in range(B) if needs_review[i]]
+        for i in gated_idx:
+            batch_preds[i] = model.decoder.CAUTIOUS_ANSWER
+
+        closed_idx = [i for i in range(B) if not needs_review[i] and batch["answer_type"][i] == "CLOSED"]
+        if closed_idx:
+            closed_preds = model.decoder.predict_closed(
+                z_final[closed_idx], SYSTEM_TEXT, "", [batch["question_text"][i] for i in closed_idx]
+            )
+            for i, p in zip(closed_idx, closed_preds):
+                batch_preds[i] = p
+
+        open_idx = [i for i in range(B) if not needs_review[i] and batch["answer_type"][i] != "CLOSED"]
+        if open_idx:
+            open_results = model.decoder.generate(
+                z_final[open_idx], U[open_idx], system_text=SYSTEM_TEXT, evidence_text="",
+                question_text=[batch["question_text"][i] for i in open_idx], gamma=gamma, max_new_tokens=8,
+            )
+            for i, r in zip(open_idx, open_results):
+                batch_preds[i] = r["answer"]
+
+        preds.extend(batch_preds)
         refs.extend(batch["answer_text"])
         answer_types.extend(batch["answer_type"])
         question_types.extend(batch["question_type"])

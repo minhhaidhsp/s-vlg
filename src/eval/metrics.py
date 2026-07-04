@@ -6,23 +6,53 @@ breakdown (by answer_type or question_type); and the risk-coverage curve
 built from (uncertainty, correctness) pairs.
 """
 
+import re
+import string
+
 import sacrebleu
 from sklearn.metrics import precision_recall_fscore_support, roc_auc_score
 
+_ARTICLES = {"a", "an", "the"}
+_PUNCT_TABLE = str.maketrans("", "", string.punctuation)
+
 
 def normalize_answer(text: str) -> str:
+    """Minimal normalization (lowercase + strip) — used by the STRICT
+    exact_match metric. See normalize_vqa_answer for the more forgiving
+    normalization used by vqa_accuracy."""
     return text.strip().lower()
 
 
+def normalize_vqa_answer(text: str) -> str:
+    """VQA-domain-standard normalization: lowercase, strip, drop punctuation,
+    drop leading/trailing articles ("a"/"an"/"the"), collapse whitespace.
+    Used by vqa_accuracy so trivial formatting differences (a trailing
+    period, "The kidney" vs "kidney", casing) don't count as wrong — this is
+    the accuracy convention VQA-RAD/SLAKE-style evaluation typically uses,
+    distinct from the strict exact_match metric.
+    """
+    text = text.strip().lower()
+    text = text.translate(_PUNCT_TABLE)
+    words = [w for w in text.split() if w not in _ARTICLES]
+    return re.sub(r"\s+", " ", " ".join(words)).strip()
+
+
 def exact_match(pred: str, ref: str) -> float:
+    """Strict match: lowercase + strip only, no punctuation/article removal."""
     return 1.0 if normalize_answer(pred) == normalize_answer(ref) else 0.0
 
 
 def vqa_accuracy(preds: list, refs: list) -> float:
-    """Exact-match-based VQA accuracy (fraction of correct answers)."""
+    """VQA-style accuracy: normalized match (Eq.: normalize_vqa_answer(pred)
+    == normalize_vqa_answer(ref)) — NOT raw strict string equality. This is
+    deliberately more forgiving than exact_match (see normalize_vqa_answer).
+    """
     if not preds:
         return float("nan")
-    return sum(exact_match(p, r) for p, r in zip(preds, refs)) / len(preds)
+    return sum(
+        1.0 if normalize_vqa_answer(p) == normalize_vqa_answer(r) else 0.0
+        for p, r in zip(preds, refs)
+    ) / len(preds)
 
 
 def bleu_score(preds: list, refs: list, max_ngram_order: int) -> float:
@@ -47,8 +77,10 @@ def closed_question_prf1_auc(preds: list, refs: list, answer_types: list, scores
     if not idx:
         return {"precision": None, "recall": None, "f1": None, "auc_roc": None}
 
-    y_true = [1 if normalize_answer(refs[i]) == "yes" else 0 for i in idx]
-    y_pred = [1 if normalize_answer(preds[i]) == "yes" else 0 for i in idx]
+    # normalize_vqa_answer so a trailing period/case difference ("Yes." etc.)
+    # still resolves to the "yes" class instead of silently falling to "no".
+    y_true = [1 if normalize_vqa_answer(refs[i]) == "yes" else 0 for i in idx]
+    y_pred = [1 if normalize_vqa_answer(preds[i]) == "yes" else 0 for i in idx]
 
     precision, recall, f1, _ = precision_recall_fscore_support(
         y_true, y_pred, average="binary", zero_division=0
@@ -138,6 +170,19 @@ def _self_test() -> bool:
     em = exact_match("Yes", "yes")
     if em != 1.0:
         print(f"FAIL: exact_match case-insensitive check failed, got {em}")
+        ok = False
+
+    # vqa_accuracy should be forgiving of punctuation/articles/case that
+    # exact_match is strict about — this is the whole point of having two
+    # separate normalization functions.
+    if exact_match("The kidney.", "kidney") != 0.0:
+        print("FAIL: test setup assumption broken — exact_match should be strict here")
+        ok = False
+    if vqa_accuracy(["The kidney."], ["kidney"]) != 1.0:
+        print("FAIL: vqa_accuracy should match 'The kidney.' to 'kidney' after normalization")
+        ok = False
+    if normalize_vqa_answer("Yes.") != "yes":
+        print(f"FAIL: normalize_vqa_answer('Yes.') = {normalize_vqa_answer('Yes.')!r} != 'yes'")
         ok = False
 
     b1 = bleu_score(preds, refs, max_ngram_order=1)
