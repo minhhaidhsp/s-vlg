@@ -1,0 +1,74 @@
+# =============================================================
+# S-VLG .gitignore
+# RANG BUOC TUAN THU: du lieu y te (MIMIC) la credentialed data,
+# TUYET DOI KHONG duoc commit len GitHub duoi bat ky hinh thuc nao.
+# =============================================================
+
+# --- Toan bo du lieu (giu cau truc bang .gitkeep) ---
+data/*
+!data/.gitkeep
+!data/raw/
+data/raw/*
+!data/raw/.gitkeep
+!data/interim/
+data/interim/*
+!data/interim/.gitkeep
+!data/processed/
+data/processed/*
+!data/processed/.gitkeep
+
+# Chan tuyet doi cac dinh dang du lieu/anh nang trong data/ (du da khoi ngoai tru o tren,
+# quy tac nay giu an toan neu cau truc thu muc data/ thay doi sau nay)
+data/**/*.csv
+data/**/*.parquet
+data/**/*.npz
+data/**/*.npy
+data/**/*.jpg
+data/**/*.jpeg
+data/**/*.png
+data/**/*.dcm
+data/**/*.h5
+data/**/*.hdf5
+data/**/*.json
+data/**/*.jsonl
+
+# --- Checkpoints, logs, model weights (file nang) ---
+outputs/checkpoints/*
+!outputs/checkpoints/.gitkeep
+outputs/logs/*
+!outputs/logs/.gitkeep
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.bin
+
+# --- Secrets / credentials ---
+.env
+.env.*
+*credentials*
+*.key
+*.pem
+secrets.yaml
+secrets.yml
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.ipynb_checkpoints/
+*.egg-info/
+build/
+dist/
+
+# --- Virtual environments ---
+venv/
+.venv/
+env/
+ENV/
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

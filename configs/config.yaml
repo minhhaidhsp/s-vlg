@@ -1,0 +1,38 @@
+# =============================================================
+# S-VLG main config
+# Gia tri de trong (null) la cac sieu tham so can chon qua validation.
+# =============================================================
+
+paths:
+  raw_dir: "data/raw"
+  interim_dir: "data/interim"
+  processed_dir: "data/processed"
+  output_dir: "outputs"
+
+data:
+  window_hours: 48
+  target_num_patients: 8000
+  split_ratios: [0.7, 0.1, 0.2]  # [train, val, test]
+  seed:
+
+model:
+  vit_name:
+  llm_name: "Qwen/Qwen2.5-3B-Instruct"
+  lora_r: 16
+  lora_alpha: 32
+  n_prefix: 8
+  graph_layers_K: 2
+  mltm_mask_ratio: 0.75
+
+graph:
+  jaccard_threshold_tau:  # chon qua validation
+  retrieval_M:            # chon qua validation
+
+uncertainty:
+  gamma_threshold:  # chon qua validation
+
+train:
+  batch_size:
+  lr: 2.0e-4
+  epochs:
+  num_seeds:

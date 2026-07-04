@@ -1,0 +1,49 @@
+# =============================================================
+# S-VLG requirements
+# Ghi chu:
+#   - bitsandbytes CHI chay tren Linux/Colab (khong ho tro tot tren Windows local).
+#     Tren Windows local, comment/bo dong bitsandbytes; van co the cai dat
+#     cac phan khac de tien xu ly du lieu (khong can quantization/LoRA train).
+#   - torch/torchvision/torch-geometric can khop CUDA version, cai theo
+#     huong dan chinh thuc (https://pytorch.org, https://pytorch-geometric.readthedocs.io)
+#     thay vi pin cung trong file nay.
+# =============================================================
+
+# --- Core DL framework ---
+torch==2.4.1
+torchvision==0.19.1
+
+# --- HuggingFace stack ---
+transformers==4.44.2
+peft==0.12.0
+accelerate==0.34.2
+
+# bitsandbytes: CHI dung tren Linux/Colab (quantization LLM). Bo qua tren Windows local.
+bitsandbytes==0.43.3 ; sys_platform != "win32"
+
+# --- Vision backbone ---
+timm==1.0.9
+
+# --- Graph neural network (GraphSAGE) ---
+torch-geometric==2.5.3
+
+# --- Data processing ---
+pandas==2.2.2
+numpy==1.26.4
+pyarrow==17.0.0
+scikit-learn==1.5.1
+
+# --- NLP metrics (BLEU) ---
+nltk==3.9.1
+sacrebleu==2.4.3
+
+# --- Graph utilities ---
+networkx==3.3
+
+# --- Config / misc ---
+pyyaml==6.0.2
+tqdm==4.66.5
+
+# --- Visualization ---
+matplotlib==3.9.2
+seaborn==0.13.2
