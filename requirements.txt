@@ -47,3 +47,9 @@ tqdm==4.66.5
 # --- Visualization ---
 matplotlib==3.9.2
 seaborn==0.13.2
+
+# --- Public eval dataset downloading (VQA-RAD, SLAKE) ---
+datasets==3.0.1
+huggingface_hub==0.25.1
+requests==2.32.3
+pillow==10.4.0

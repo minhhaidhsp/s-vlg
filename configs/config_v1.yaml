@@ -1,0 +1,28 @@
+# =============================================================
+# S-VLG (Version 1) — overrides on top of configs/config.yaml
+# Load via: src.utils.config.load_version_config("v1")
+#
+# V1 = 3 modalities (image + text + patient/EHR knowledge graph). The base
+# config.yaml was originally authored for this version, so most fields here
+# are just explicit re-affirmations / additions rather than value changes —
+# see PROJECT_STATE.md for the two-version rationale.
+# =============================================================
+
+experiment_version: "v1"
+
+model:
+  # V1 uses all three branches: vision (ViT) + tabular (MLTM) + graph (GraphSAGE).
+  # graph_layers_K, mltm_mask_ratio (base config.yaml) apply to this version.
+  lab_input_dim: 50            # lab-test vector dimension D (MLTM input) — placeholder until MIMIC schema is finalized
+  mltm_bottleneck_dim: 32
+  graph_in_dim: 64
+  graph_hidden_dim: 64
+  graph_out_dim: 64
+  fusion_d_shared: 64
+  fusion_d_vis: 64
+  fusion_d_tab: 32
+  fusion_d_graph: 32           # DisentangledFusion branch_dims = [fusion_d_vis, fusion_d_tab, fusion_d_graph], num_branches=3
+
+graph:
+  neighbor_sample_size: 10     # GraphSAGE per-layer neighbor sampling size S
+  # jaccard_threshold_tau, retrieval_M inherited from config.yaml (null — chosen via validation)

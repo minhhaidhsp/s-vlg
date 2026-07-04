@@ -1,0 +1,37 @@
+{
+  "vqa-rad": {
+    "num_images": 314,
+    "num_qa_pairs": 2244,
+    "answer_type_counts": {
+      "CLOSED": 1191,
+      "OPEN": 1053
+    },
+    "open_ratio": 0.4693,
+    "closed_ratio": 0.5307,
+    "question_type_counts": {
+      "UNKNOWN": 2244
+    }
+  },
+  "slake": {
+    "num_images": 642,
+    "num_qa_pairs": 7033,
+    "answer_type_counts": {
+      "OPEN": 4252,
+      "CLOSED": 2781
+    },
+    "open_ratio": 0.6046,
+    "closed_ratio": 0.3954,
+    "question_type_counts": {
+      "Modality": 752,
+      "Position": 1216,
+      "Organ": 1776,
+      "Size": 447,
+      "Abnormality": 998,
+      "Quantity": 328,
+      "Plane": 369,
+      "Shape": 60,
+      "Color": 202,
+      "KG": 885
+    }
+  }
+}

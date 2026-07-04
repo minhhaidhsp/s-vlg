@@ -1,0 +1,24 @@
+# =============================================================
+# SU-MedVQA (Version 2) — overrides on top of configs/config.yaml
+# Load via: src.utils.config.load_version_config("v2")
+#
+# V2 = 2 modalities (image + text only). No tabular (MLTM) or graph
+# (GraphSAGE) branches, no Graph-RAG — see PROJECT_STATE.md for the
+# two-version rationale. Public data only (VQA-RAD + SLAKE), no MIMIC.
+# =============================================================
+
+experiment_version: "v2"
+
+data:
+  raw_dir: "data/raw"          # VQA-RAD: data/raw/vqa-rad, SLAKE: data/raw/slake (scripts/download_eval_datasets.py)
+  window_hours:                # not applicable — V2 has no temporal EHR observation window
+  target_num_patients:         # not applicable — V2 has no MIMIC patient cohort, uses public VQA-RAD/SLAKE images directly
+  # split_ratios inherited from config.yaml; VQA-RAD/SLAKE ship with their own train/test splits (see src/data/load_eval_vqa.py)
+
+model:
+  # V2 uses only the vision branch: DisentangledFusion branch_dims = [fusion_d_vis], num_branches=1.
+  # No lab_input_dim/mltm_*/graph_* fields — su_medvqa.py never reads them.
+  fusion_d_shared: 64
+  fusion_d_vis: 64
+
+# No `graph:` section — Graph-RAG (jaccard_threshold_tau, retrieval_M) is V1-only.
