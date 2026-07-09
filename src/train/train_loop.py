@@ -9,6 +9,8 @@ all restored, so training continues from exactly where it left off.
 
 from pathlib import Path
 
+import torch
+
 from src.train.checkpoint_utils import (
     checkpoint_path,
     load_checkpoint,
@@ -28,6 +30,7 @@ def train(
     seed: int = 0,
     resume_from=None,
     on_epoch_end=None,
+    max_grad_norm: float = 1.0,
 ) -> list:
     """Train `model` for up to `num_epochs`, checkpointing every epoch.
 
@@ -46,6 +49,12 @@ def train(
             Ignored if `resume_from` is given — the checkpoint's own seed wins.
         resume_from: path to a checkpoint to resume training from.
         on_epoch_end: optional callback(epoch, avg_loss, checkpoint_path).
+        max_grad_norm: gradient clipping threshold (torch.nn.utils.clip_grad_norm_),
+            applied every step BEFORE optimizer.step(). Without this, plain SGD
+            on this hybrid ViT+LM architecture reliably diverges to NaN loss
+            after a few hundred steps (observed empirically: gradient norm grew
+            9 -> 27 over 96 steps, then NaN) — this is not optional for runs
+            with more than a couple dozen steps per epoch.
 
     Returns:
         List of checkpoint paths written during this call (one per epoch trained).
@@ -67,6 +76,7 @@ def train(
             optimizer.zero_grad()
             loss = compute_loss_fn(model, batch)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
             optimizer.step()
             total_loss += loss.item()
             n_batches += 1

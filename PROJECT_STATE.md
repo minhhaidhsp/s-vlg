@@ -321,6 +321,27 @@ thành một file `outputs/PAPER_DATA_{version}.md` để điền bản thảo n
     công cụ debug (in câu hỏi/đáp án chuẩn/đáp án sinh ra/đúng-sai từ một
     checkpoint bất kỳ) cho các lần chẩn đoán sau này.
 
+- **2026-07-09**: Chạy pilot V2 quy mô lớn hơn (~1000 mẫu, 500/bộ VQA-RAD+
+  SLAKE, 2 epoch + 4 biến thể ablation, CPU local) theo yêu cầu người dùng
+  ("muốn có số liệu thật để đưa vào bài báo, không tự nghĩ ra"). **Phát hiện
+  bug thật khi tăng quy mô**: loss NaN ở cả 2 epoch. Chẩn đoán bằng cách
+  theo dõi gradient norm qua từng step — norm tăng dần 9→27 rồi nổ NaN đúng
+  ở step 96/350. Nguyên nhân: `src/train/train_loop.py` chưa có gradient
+  clipping; với n=50 (36 step) chưa kịp nổ nên không phát hiện trước đó, với
+  n=500 (350 step) thì nổ giữa chừng. **Sửa**: thêm
+  `torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm=1.0)`
+  vào `train()` trước `optimizer.step()`, tham số hóa qua `max_grad_norm`.
+  Verify: chạy lại đúng 350 step từng nổ — 0 NaN, loss ổn định quanh
+  10.85-10.90. Chạy lại pilot đầy đủ, **kết quả PASS, không còn NaN**, số
+  liệu phong phú hơn hẳn (test set 176 mẫu thay vì 21, đủ 10+ nhóm
+  question_type từ SLAKE). Xem báo cáo số liệu đầy đủ trong tin nhắn phiên
+  làm việc — tóm tắt: vqa_acc tổng thể 0.2216, CLOSED 0.4194 (khớp dải kỳ
+  vọng ~30-60%), risk-coverage AUC 0.7856, ablation `no_disentangle` bắt
+  đầu tách khỏi 3 biến thể còn lại (0.2386 vs 0.2216) — vẫn CHỈ LÀ SỐ PILOT
+  TRÊN TINY-GPT2/CPU, không phải số final cho bài báo (cần Qwen2.5+LoRA
+  thật trên GPU Colab). Gradient clipping là fix hạ tầng dùng chung cho cả
+  V1 lẫn V2 khi huấn luyện thật sau này.
+
 ---
 
 ## Hướng dẫn cho phiên làm việc mới
