@@ -31,6 +31,7 @@ def train(
     resume_from=None,
     on_epoch_end=None,
     max_grad_norm: float = 1.0,
+    show_progress: bool = True,
 ) -> list:
     """Train `model` for up to `num_epochs`, checkpointing every epoch.
 
@@ -55,10 +56,19 @@ def train(
             after a few hundred steps (observed empirically: gradient norm grew
             9 -> 27 over 96 steps, then NaN) — this is not optional for runs
             with more than a couple dozen steps per epoch.
+        show_progress: if True (default), show a tqdm progress bar per epoch
+            with a live running-average loss — useful on Colab for long full-
+            dataset runs. Falls back to no bar (silent per-batch) if tqdm
+            isn't installed.
 
     Returns:
         List of checkpoint paths written during this call (one per epoch trained).
     """
+    try:
+        from tqdm.auto import tqdm
+    except ImportError:
+        tqdm = None
+
     start_epoch = 1
     if resume_from is not None:
         ckpt = load_checkpoint(resume_from)
@@ -72,7 +82,15 @@ def train(
         model.train()
         total_loss = 0.0
         n_batches = 0
-        for batch in dataloader:
+
+        iterable = dataloader
+        progress_bar = None
+        if show_progress and tqdm is not None:
+            total = len(dataloader) if hasattr(dataloader, "__len__") else None
+            progress_bar = tqdm(dataloader, total=total, desc=f"epoch {epoch}/{num_epochs}", unit="batch")
+            iterable = progress_bar
+
+        for batch in iterable:
             optimizer.zero_grad()
             loss = compute_loss_fn(model, batch)
             loss.backward()
@@ -80,6 +98,8 @@ def train(
             optimizer.step()
             total_loss += loss.item()
             n_batches += 1
+            if progress_bar is not None:
+                progress_bar.set_postfix(avg_loss=f"{total_loss / n_batches:.4f}")
         avg_loss = total_loss / max(1, n_batches)
 
         path = checkpoint_path(checkpoint_dir, experiment_version, seed, epoch)

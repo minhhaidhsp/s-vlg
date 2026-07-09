@@ -148,7 +148,7 @@ def render_table(spec: dict, version: str):
         key = (r.get(key_field), r.get("dataset"))
         if key in aggregated_keys:
             continue
-        single_groups.setdefault(key, r)  # keep latest per group
+        single_groups[key] = r  # overwrite so the LAST (most recent) record for this key wins
 
     for (key_value, dataset), r in single_groups.items():
         status = r.get("status", "provisional")

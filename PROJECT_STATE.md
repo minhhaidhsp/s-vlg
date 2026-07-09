@@ -342,6 +342,41 @@ thành một file `outputs/PAPER_DATA_{version}.md` để điền bản thảo n
   thật trên GPU Colab). Gradient clipping là fix hạ tầng dùng chung cho cả
   V1 lẫn V2 khi huấn luyện thật sau này.
 
+- **2026-07-10**: Tạo **`scripts/train_v2_colab.ipynb`** — notebook Colab để
+  người dùng train model V2 THẬT (Qwen2.5-3B-Instruct + QLoRA 4-bit) trên
+  GPU A100, kết nối Google Drive lấy `data/raw/vqa-rad/` + `data/raw/slake/`
+  (đã xác nhận đây là bộ dữ liệu ĐẦY ĐỦ, không phải subset: VQA-RAD 314
+  ảnh/2.244 QA, SLAKE-en 642 ảnh/7.033 QA). Notebook có 3 bước: calibration
+  1 epoch đo tốc độ thật trên GPU cụ thể (KHÔNG suy diễn từ số CPU/tiny-gpt2
+  — kiến trúc decoder khác biệt hoàn toàn về quy mô), chạy full (`--n 0`,
+  N epoch), và compile ra `PAPER_DATA_v2.md`; kèm mục Resume và mark_final.
+
+  Để notebook dùng được thật, đã **tổng quát hóa `scripts/run_smoketest_v2.py`**
+  (không tạo file trùng lặp) thay vì hardcode CPU/tiny-model như trước:
+  - `--real`: dùng model thật (`test_mode=False`) thay vì tiny-gpt2; tự
+    chuyển model + batch sang CUDA nếu có; optimizer AdamW (thay SGD) theo
+    `config.train.lr`; đo `gpu_mem_gb` thật qua
+    `torch.cuda.max_memory_allocated`.
+  - `--n 0` (hoặc số ≤0): dùng TOÀN BỘ dataset, không subset.
+  - `--resume-from`: nối vào CLI thật (trước đó `train_loop.py` có hạ tầng
+    resume nhưng `run_smoketest_v2.py` chưa từng dùng được từ dòng lệnh).
+  - `--skip-ablation`: bỏ qua 4 lần train ablation, phục vụ calibration nhanh.
+  - Thêm progress bar (`tqdm`) vào `train_loop.py` — trước đó KHÔNG có, chỉ
+    in 1 dòng/epoch, không đủ cho theo dõi live một run nhiều nghìn step.
+
+  **Phát hiện + sửa 1 bug hiển thị số liệu** khi rà lại logic trước khi giao
+  cho người dùng chạy nhiều lần (calibration rồi full, cùng seed):
+  `scripts/compile_paper_data.py` và `scripts/build_paper_tables.py` dùng
+  `single_groups.setdefault(key, r)` — giữ bản ghi ĐẦU TIÊN xuất hiện, dù
+  comment ghi "keep latest". Nếu người dùng chạy calibration (n nhỏ) rồi
+  chạy full (cùng seed=0, không đủ ≥2 seed để trigger tính mean/std), bảng
+  sẽ hiển thị NHẦM số calibration cũ thay vì số full run mới. Sửa thành gán
+  trực tiếp (`single_groups[key] = r`) để bản ghi cuối cùng (append sau
+  cùng) luôn thắng — verify bằng dữ liệu giả 2 bản ghi cùng seed khác giá
+  trị, xác nhận lấy đúng bản mới. Rerun pilot ~1000 mẫu bằng script đã tổng
+  quát hóa: kết quả khớp lần trước (không đổi hành vi khi test_mode=True),
+  toàn bộ self-test PASS.
+
 ---
 
 ## Hướng dẫn cho phiên làm việc mới

@@ -1,16 +1,35 @@
-"""Full-pipeline smoke test for Version 2 (SU-MedVQA), local CPU / test_mode.
+"""Full V2 (SU-MedVQA) pipeline: local CPU smoke test AND real Colab GPU training.
 
-Trains a tiny SU_MedVQA on a small VQA-RAD + SLAKE subset, evaluates it, runs
-a short ablation, and compiles everything into outputs/PAPER_DATA_v2.md.
-Numbers will be BAD (tiny model, few epochs, tiny subset) — that is expected
-and fine: the goal is to verify the pipeline runs end to end and produces
-correctly-shaped, correctly-labeled ("provisional") numbers, not good scores.
+Two modes, controlled by --real:
 
-Every number is written through ResultsLogger (status="provisional") — none
-are hardcoded. Anything that genuinely cannot be measured locally (real GPU
-compute cost) is left absent so compile_paper_data.py reports it as [THIẾU].
+  --real NOT given (default): local CPU smoke test. Tiny non-quantized
+    decoder (sshleifer/tiny-gpt2, test_mode=True), small subset (--n per
+    dataset), SGD. Numbers will be BAD (tiny model, few epochs, tiny subset)
+    — that is expected: the goal is to verify the pipeline runs end to end
+    and produces correctly-shaped, correctly-labeled ("provisional") numbers,
+    not good scores.
 
-Usage:
+  --real given: the REAL model — Qwen2.5-3B-Instruct + QLoRA 4-bit
+    (test_mode=False, requires bitsandbytes + peft, Linux/Colab only — see
+    src/models/decoder.py), AdamW, moved to CUDA if available. --n omitted
+    or <= 0 uses the FULL VQA-RAD+SLAKE dataset (no subsetting).
+
+Every number is written through ResultsLogger (status="provisional" until
+you call ResultsLogger.mark_final once the full epoch/seed budget is done).
+Anything that genuinely cannot be measured (e.g. GPU memory when running on
+CPU) is left absent so compile_paper_data.py reports it as [THIẾU] — never
+fabricated.
+
+Colab usage:
+  pip install -r requirements.txt   # bitsandbytes installs here (Linux)
+  # 1) First measure real per-epoch time on your assigned GPU before
+  #    committing to a long run:
+  python scripts/run_smoketest_v2.py --real --epochs 1 --n 200
+  # 2) Full dataset, full epoch budget (resume-safe if Colab disconnects —
+  #    checkpoints are saved every epoch under outputs/checkpoints/v2_real/):
+  python scripts/run_smoketest_v2.py --real --epochs 10
+
+Local CPU usage (smoke test, unchanged):
   python scripts/run_smoketest_v2.py --n 200 --epochs 2
   python scripts/run_smoketest_v2.py --n 16 --epochs 1   # fast sanity check
 """
@@ -45,20 +64,44 @@ def build_config(n_samples_hint: int, vocab_size: int) -> dict:
     return config
 
 
-def make_model(config: dict, variant: str, seed: int) -> SU_MedVQA:
+def to_device(batch: dict, device) -> dict:
+    """Moves the tensor fields of a vqa_dataset batch to `device`; text/list
+    fields (question_text, answer_text, answer_type, ...) are left as-is."""
+    batch = dict(batch)
+    batch["images"] = batch["images"].to(device)
+    batch["question_input_ids"] = batch["question_input_ids"].to(device)
+    return batch
+
+
+def make_model(config: dict, variant: str, seed: int, test_mode: bool = True, device=None) -> SU_MedVQA:
     torch.manual_seed(seed)
+    kwargs = {}
     if variant == "no_rpr":
-        return SU_MedVQA(config, test_mode=True, use_rel_pos_bias=False)
+        kwargs["use_rel_pos_bias"] = False
     if variant == "no_disentangle":
-        return SU_MedVQA(config, test_mode=True, disentangle_deterministic=True)
+        kwargs["disentangle_deterministic"] = True
     # "full" and "no_gate" share the exact same architecture — the gate
     # (Eq. 32) only ever applies at inference (see decoder.py), so "no_gate"
     # trains identically and differs only in the gamma passed to generate().
-    return SU_MedVQA(config, test_mode=True)
+    model = SU_MedVQA(config, test_mode=test_mode, **kwargs)
+    if device is not None:
+        model = model.to(device)
+    return model
 
 
-def make_loss_fn(config: dict, epoch_for_kl_anneal: int = 1):
+def make_optimizer(model, config: dict, test_mode: bool):
+    """SGD for the tiny test_mode debug model (matches what was validated in
+    the CPU smoke test); AdamW at the config-declared lr for the real model
+    (standard for transformer/LoRA fine-tuning)."""
+    if test_mode:
+        return torch.optim.SGD(model.parameters(), lr=1e-3)
+    lr = (config.get("train", {}) or {}).get("lr") or 2e-4
+    return torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
+
+
+def make_loss_fn(config: dict, device, epoch_for_kl_anneal: int = 1):
     def compute_loss_fn(model, batch):
+        batch = to_device(batch, device)
         _, _, fusion_losses, decoder_out = model(
             batch["images"], batch["question_input_ids"], batch["question_text"],
             system_text=SYSTEM_TEXT, answer_text=batch["answer_text"],
@@ -68,7 +111,7 @@ def make_loss_fn(config: dict, epoch_for_kl_anneal: int = 1):
 
 
 @torch.no_grad()
-def evaluate(model, dataloader, gamma_override: float = None) -> dict:
+def evaluate(model, dataloader, device, gamma_override: float = None) -> dict:
     """Runs evaluation over every batch in `dataloader`, returns per-sample
     lists: preds, refs, answer_types, question_types, sources, uncertainties, correct_flags.
 
@@ -87,6 +130,7 @@ def evaluate(model, dataloader, gamma_override: float = None) -> dict:
     preds, refs, answer_types, question_types, sources, uncertainties = [], [], [], [], [], []
 
     for batch in dataloader:
+        batch = to_device(batch, device)
         z_final, U, _, _ = model(
             batch["images"], batch["question_input_ids"], batch["question_text"],
             system_text=SYSTEM_TEXT, answer_text=None,
@@ -183,16 +227,16 @@ def log_table6_and_table7(logger: ResultsLogger, eval_out: dict, seed: int, epoc
             )
 
 
-def log_risk_coverage(logger: ResultsLogger, eval_out: dict, seed: int, epoch: int, config: dict):
+def log_risk_coverage(logger: ResultsLogger, eval_out: dict, seed: int, epoch: int, config: dict, dataset_note: str):
     rc = risk_coverage_curve(eval_out["uncertainties"], eval_out["correct_flags"])
     logger.log_risk_coverage(
         config_name="SU-MedVQA", coverage_points=rc["coverage_points"], risk_values=rc["risk_values"],
-        auc=rc["auc"], seed=seed, dataset="vqa-rad+slake (full val+test of smoketest subset)",
+        auc=rc["auc"], seed=seed, dataset=dataset_note,
         config=config, status="provisional", epochs_trained=epoch,
     )
 
 
-def log_attention_heatmap(logger: ResultsLogger, model, test_records: list, tokenizer, seed: int, epoch: int):
+def log_attention_heatmap(logger: ResultsLogger, model, test_records: list, tokenizer, seed: int, epoch: int, device):
     """Figure 10 data: for a few localization-type questions (question_type
     in {Organ, Position}), log the [196] flattened 14x14 attention map. Fits
     log_curve_data's generic (x, y, label) shape: x = patch index, y = weight;
@@ -210,8 +254,8 @@ def log_attention_heatmap(logger: ResultsLogger, model, test_records: list, toke
     with torch.no_grad():
         for i, record in enumerate(candidates):
             item = dataset[i]
-            images = item["image"].unsqueeze(0)
-            question_input_ids = item["question_input_ids"].unsqueeze(0)
+            images = item["image"].unsqueeze(0).to(device)
+            question_input_ids = item["question_input_ids"].unsqueeze(0).to(device)
             _, _, _, _, attn = model(
                 images, question_input_ids, item["question_text"],
                 system_text=SYSTEM_TEXT, answer_text=None, return_attn=True,
@@ -226,23 +270,26 @@ def log_attention_heatmap(logger: ResultsLogger, model, test_records: list, toke
             )
 
 
-def run_ablation(config: dict, train_dataloader, test_dataloader, seed: int, checkpoint_root: Path, logger: ResultsLogger):
+def run_ablation(
+    config: dict, train_dataloader, test_dataloader, seed: int, checkpoint_root: Path,
+    logger: ResultsLogger, test_mode: bool, device, ablation_epochs: int = 1,
+):
     variants = ["full", "no_rpr", "no_gate", "no_disentangle"]
     for variant in variants:
         print(f"\n--- Ablation variant: {variant} ---")
-        model = make_model(config, variant, seed=seed)
-        optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
-        loss_fn = make_loss_fn(config)
+        model = make_model(config, variant, seed=seed, test_mode=test_mode, device=device)
+        optimizer = make_optimizer(model, config, test_mode)
+        loss_fn = make_loss_fn(config, device)
 
         written = train(
-            model, train_dataloader, optimizer, num_epochs=1,
+            model, train_dataloader, optimizer, num_epochs=ablation_epochs,
             checkpoint_dir=checkpoint_root / variant, experiment_version="v2",
             compute_loss_fn=loss_fn, seed=seed,
         )
         epoch = load_checkpoint(written[-1])["epoch"]
 
         gamma_override = float("inf") if variant == "no_gate" else None
-        eval_out = evaluate(model, test_dataloader, gamma_override=gamma_override)
+        eval_out = evaluate(model, test_dataloader, device, gamma_override=gamma_override)
         metrics = {
             "vqa_acc": vqa_accuracy(eval_out["preds"], eval_out["refs"]),
             "exact_match": vqa_accuracy(eval_out["preds"], eval_out["refs"]),
@@ -269,10 +316,14 @@ def run_ablation(config: dict, train_dataloader, test_dataloader, seed: int, che
         print(f"  {variant}: vqa_acc={metrics['vqa_acc']:.3f} (epoch={epoch}, status=provisional)")
 
 
-def log_efficiency(logger: ResultsLogger, model, train_time_seconds: float, test_dataloader, seed: int, epoch: int, config: dict):
+def log_efficiency(
+    logger: ResultsLogger, model, train_time_seconds: float, test_dataloader, seed: int, epoch: int,
+    config: dict, device, test_mode: bool, peak_gpu_mem_bytes: int = None,
+):
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     batch = next(iter(test_dataloader))
+    batch = to_device(batch, device)
     single = {k: (v[:1] if isinstance(v, list) else v[:1]) for k, v in batch.items()}
     model.eval()
     with torch.no_grad():
@@ -287,34 +338,57 @@ def log_efficiency(logger: ResultsLogger, model, train_time_seconds: float, test
         "train_time_hours": train_time_seconds / 3600.0,
         "inference_latency_ms": inference_latency_ms,
         "num_params": num_params,
-        # gpu_mem_gb intentionally omitted: cannot be measured on CPU — see
-        # PAPER_DATA_MAP.md, Table 11 stays [THIẾU] for this column until a
-        # real Colab GPU run measures it.
     }
+    if peak_gpu_mem_bytes is not None:
+        metrics["gpu_mem_gb"] = peak_gpu_mem_bytes / (1024 ** 3)
+    # else: gpu_mem_gb intentionally omitted (can't be measured on CPU) — see
+    # PAPER_DATA_MAP.md, Table 11 stays [THIẾU] for that column.
+
+    if test_mode:
+        dataset_note = (
+            "cpu-local (do tren CPU local; can do lai tren GPU Colab de co so FINAL, "
+            "va num_params la cua mo hinh tiny test_mode, khong phai Qwen+LoRA that)"
+        )
+    else:
+        dataset_note = f"real ({device}, Qwen2.5-3B-Instruct+QLoRA)"
+
     logger.log_metrics(
         table_id="table11_efficiency", model_name="SU-MedVQA", metrics_dict=metrics, seed=seed,
-        dataset="cpu-local (do tren CPU local; can do lai tren GPU Colab de co so FINAL, "
-                "va num_params la cua mo hinh tiny test_mode, khong phai Qwen+LoRA that)",
-        config=config, status="provisional", epochs_trained=epoch,
+        dataset=dataset_note, config=config, status="provisional", epochs_trained=epoch,
     )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--n", type=int, default=200, help="Samples per dataset (VQA-RAD, SLAKE)")
+    parser.add_argument("--n", type=int, default=200,
+                         help="Samples per dataset (VQA-RAD, SLAKE). 0 or negative = full dataset (no subsetting).")
     parser.add_argument("--epochs", type=int, default=2, help="Epochs for the full model")
+    parser.add_argument("--ablation-epochs", type=int, default=1, help="Epochs per ablation variant")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--real", action="store_true",
+                         help="Use the REAL model (Qwen2.5-3B-Instruct + QLoRA 4-bit, test_mode=False, "
+                              "requires bitsandbytes+peft on Linux/Colab) instead of the tiny CPU debug model.")
+    parser.add_argument("--resume-from", default=None,
+                         help="Path to a full-model checkpoint to resume training from "
+                              "(e.g. after a Colab disconnect) — restores model/optimizer/epoch/seed.")
+    parser.add_argument("--skip-ablation", action="store_true",
+                         help="Skip Step d (4 ablation variants) — useful for a quick 1-epoch timing calibration run.")
     args = parser.parse_args()
 
-    checkpoint_root = PROJECT_ROOT / "outputs" / "checkpoints" / "v2_smoketest"
+    test_mode = not args.real
+    n = args.n if args.n and args.n > 0 else None
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    checkpoint_root = PROJECT_ROOT / "outputs" / "checkpoints" / ("v2_smoketest" if test_mode else "v2_real")
+
+    print(f"mode={'test_mode (tiny CPU debug)' if test_mode else 'REAL (Qwen2.5+QLoRA)'}  device={device}")
 
     print("=== Step a: load subset ===")
-    tokenizer, vocab_size = build_question_tokenizer(test_mode=True)
-    config = build_config(args.n, vocab_size)
+    tokenizer, vocab_size = build_question_tokenizer(test_mode=test_mode)
+    config = build_config(n, vocab_size)
 
-    vqa_rad = load_vqa_records("vqa-rad", n=args.n, seed=args.seed)
-    slake = load_vqa_records("slake", n=args.n, seed=args.seed)
+    vqa_rad = load_vqa_records("vqa-rad", n=n, seed=args.seed)
+    slake = load_vqa_records("slake", n=n, seed=args.seed)
     vqa_rad_splits = split_records(vqa_rad, seed=args.seed)
     slake_splits = split_records(slake, seed=args.seed)
     print(f"VQA-RAD: {len(vqa_rad)} samples -> train={len(vqa_rad_splits['train'])}, "
@@ -326,6 +400,7 @@ def main() -> None:
     val_records = vqa_rad_splits["val"] + slake_splits["val"]
     test_records = vqa_rad_splits["test"] + slake_splits["test"]
     val_test_records = val_records + test_records  # for risk-coverage: FULL val+test, no further subsetting
+    print(f"Combined: train={len(train_records)}, val+test (risk-coverage)={len(val_test_records)}")
 
     train_dataloader = build_dataloader(train_records, tokenizer, batch_size=args.batch_size, shuffle=True)
     test_dataloader = build_dataloader(test_records, tokenizer, batch_size=args.batch_size, shuffle=False)
@@ -334,33 +409,49 @@ def main() -> None:
     logger = ResultsLogger(experiment_version="v2")
 
     print("\n=== Step b: train the full model ===")
-    full_model = make_model(config, "full", seed=args.seed)
-    optimizer = torch.optim.SGD(full_model.parameters(), lr=1e-3)
-    loss_fn = make_loss_fn(config)
+    full_model = make_model(config, "full", seed=args.seed, test_mode=test_mode, device=device)
+    optimizer = make_optimizer(full_model, config, test_mode)
+    loss_fn = make_loss_fn(config, device)
+
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
 
     t0 = time.time()
     written = train(
         full_model, train_dataloader, optimizer, num_epochs=args.epochs,
         checkpoint_dir=checkpoint_root / "full", experiment_version="v2",
-        compute_loss_fn=loss_fn, seed=args.seed,
+        compute_loss_fn=loss_fn, seed=args.seed, resume_from=args.resume_from,
     )
-    train_time_seconds = time.time() - t0
-    final_epoch = load_checkpoint(written[-1])["epoch"]
-    print(f"Trained {final_epoch} epoch(s) in {train_time_seconds:.1f}s -> {written[-1]}")
+    train_time_seconds = time.time() - t0  # only THIS call's wall time — if resumed, add prior run(s)' time yourself
+    final_epoch = load_checkpoint(written[-1])["epoch"] if written else load_checkpoint(args.resume_from)["epoch"]
+    print(f"Trained {len(written)} epoch(s) this run in {train_time_seconds:.1f}s "
+          f"({train_time_seconds / max(1, len(written)):.1f}s/epoch) -> final epoch={final_epoch}")
+
+    peak_gpu_mem_bytes = torch.cuda.max_memory_allocated(device) if device.type == "cuda" else None
 
     print("\n=== Step c: evaluate final checkpoint -> Table 6, 7, 10, Figure 8, Figure 10 ===")
-    test_eval = evaluate(full_model, test_dataloader)
+    test_eval = evaluate(full_model, test_dataloader, device)
     log_table6_and_table7(logger, test_eval, seed=args.seed, epoch=final_epoch, config=config)
 
-    val_test_eval = evaluate(full_model, val_test_dataloader)
-    log_risk_coverage(logger, val_test_eval, seed=args.seed, epoch=final_epoch, config=config)
+    val_test_eval = evaluate(full_model, val_test_dataloader, device)
+    dataset_note = "vqa-rad+slake (full val+test" + (" of full dataset)" if n is None else " of smoketest subset)")
+    log_risk_coverage(logger, val_test_eval, seed=args.seed, epoch=final_epoch, config=config, dataset_note=dataset_note)
 
-    log_attention_heatmap(logger, full_model, test_records, tokenizer, seed=args.seed, epoch=final_epoch)
+    log_attention_heatmap(logger, full_model, test_records, tokenizer, seed=args.seed, epoch=final_epoch, device=device)
 
-    log_efficiency(logger, full_model, train_time_seconds, test_dataloader, seed=args.seed, epoch=final_epoch, config=config)
+    log_efficiency(
+        logger, full_model, train_time_seconds, test_dataloader, seed=args.seed, epoch=final_epoch,
+        config=config, device=device, test_mode=test_mode, peak_gpu_mem_bytes=peak_gpu_mem_bytes,
+    )
 
-    print("\n=== Step d: ablation (Table 9) — 1 epoch per variant ===")
-    run_ablation(config, train_dataloader, test_dataloader, seed=args.seed, checkpoint_root=checkpoint_root, logger=logger)
+    if args.skip_ablation:
+        print("\n=== Step d: ablation SKIPPED (--skip-ablation) ===")
+    else:
+        print(f"\n=== Step d: ablation (Table 9) — {args.ablation_epochs} epoch(s) per variant ===")
+        run_ablation(
+            config, train_dataloader, test_dataloader, seed=args.seed, checkpoint_root=checkpoint_root,
+            logger=logger, test_mode=test_mode, device=device, ablation_epochs=args.ablation_epochs,
+        )
 
     print("\n=== Step f: compile paper data ===")
     import subprocess
@@ -370,11 +461,14 @@ def main() -> None:
     print("Bảng 6 (tổng thể): có số (provisional)")
     print("Bảng 7 (phân rã nhóm): có số (provisional)")
     print("Bảng 8 (VQA-RAD/SLAKE riêng): gộp vào Bảng 6 dưới dạng các dòng dataset riêng (xem MANIFEST.md) — có số (provisional)")
-    print("Bảng 9 (ablation): có số cho 4 biến thể (provisional)")
-    print("Bảng 10 + Hình 8 (risk-coverage): có số, chạy trên TOÀN BỘ val+test của subset (provisional)")
+    print("Bảng 9 (ablation): BỎ QUA (--skip-ablation)" if args.skip_ablation else "Bảng 9 (ablation): có số cho 4 biến thể (provisional)")
+    print("Bảng 10 + Hình 8 (risk-coverage): có số, chạy trên TOÀN BỘ val+test (provisional)")
     print("Hình 10 (attention heatmap): có số nếu subset có câu hỏi Organ/Position (SLAKE)")
-    print("Bảng 11 (chi phí tính toán): có num_params + train_time_hours + inference_latency_ms đo trên CPU local "
-          "(provisional, cần đo lại trên GPU Colab); gpu_mem_gb để trống -> [THIẾU]")
+    if test_mode:
+        print("Bảng 11 (chi phí tính toán): đo trên CPU local (provisional, cần đo lại trên GPU Colab); "
+              "gpu_mem_gb để trống -> [THIẾU]")
+    else:
+        print(f"Bảng 11 (chi phí tính toán): đo THẬT trên {device} (provisional cho tới khi đủ epoch×seed cuối cùng)")
     print(f"\nFile tổng hợp: {PROJECT_ROOT / 'outputs' / 'PAPER_DATA_v2.md'}")
 
 

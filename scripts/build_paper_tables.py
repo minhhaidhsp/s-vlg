@@ -85,7 +85,7 @@ def render_grouped_table(
         key = (r.get(key_field), r.get("dataset"))
         if key in aggregated_keys:
             continue
-        single_groups.setdefault(key, r)  # keep the latest record per group
+        single_groups[key] = r  # overwrite so the LAST (most recent) record for this key wins
 
     for (key_value, dataset), r in single_groups.items():
         row = [str(key_value), str(dataset or "[…]"), "1"]
