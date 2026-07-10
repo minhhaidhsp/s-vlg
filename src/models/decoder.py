@@ -108,18 +108,27 @@ class VQADecoder(nn.Module):
         """
         if isinstance(text, str):
             enc = self.tokenizer([text], return_tensors="pt", padding=True).to(device)
-            embeds = self.llm.get_input_embeddings()(enc["input_ids"])  # [1, L, d_llm]
+            # transformers==4.44.2's BatchEncoding.convert_to_tensors falls back to plain
+            # torch.tensor(value) for an empty token list (e.g. text=""), which PyTorch
+            # infers as float32 (no int elements to infer a dtype from) instead of the
+            # expected int64 — breaks nn.Embedding below. Force the dtype explicitly so
+            # this doesn't depend on the installed transformers version's edge-case handling.
+            input_ids = enc["input_ids"].long()
+            attention_mask = enc["attention_mask"].long()
+            embeds = self.llm.get_input_embeddings()(input_ids)  # [1, L, d_llm]
             return (
                 embeds.expand(batch_size, -1, -1),
-                enc["input_ids"].expand(batch_size, -1),
-                enc["attention_mask"].expand(batch_size, -1),
+                input_ids.expand(batch_size, -1),
+                attention_mask.expand(batch_size, -1),
             )
 
         texts = list(text)
         assert len(texts) == batch_size, f"expected {batch_size} strings, got {len(texts)}"
         enc = self.tokenizer(texts, return_tensors="pt", padding=True).to(device)
-        embeds = self.llm.get_input_embeddings()(enc["input_ids"])  # [B, L, d_llm]
-        return embeds, enc["input_ids"], enc["attention_mask"]
+        input_ids = enc["input_ids"].long()
+        attention_mask = enc["attention_mask"].long()
+        embeds = self.llm.get_input_embeddings()(input_ids)  # [B, L, d_llm]
+        return embeds, input_ids, attention_mask
 
     def forward(
         self,
