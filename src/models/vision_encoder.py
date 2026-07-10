@@ -29,11 +29,11 @@ class VisionEncoder(nn.Module):
         self.grid_size = self.vit.patch_embed.grid_size  # (14, 14) for 224/16
         self.d = self.vit.embed_dim  # 768 for ViT-Base
 
-    def patch_coords(self) -> torch.Tensor:
+    def patch_coords(self, device=None) -> torch.Tensor:
         """Grid (row, col) coordinate of each patch, in raster order — [N_p, 2]."""
         gh, gw = self.grid_size
-        rows = torch.arange(gh).view(-1, 1).expand(gh, gw).reshape(-1)
-        cols = torch.arange(gw).view(1, -1).expand(gh, gw).reshape(-1)
+        rows = torch.arange(gh, device=device).view(-1, 1).expand(gh, gw).reshape(-1)
+        cols = torch.arange(gw, device=device).view(1, -1).expand(gh, gw).reshape(-1)
         return torch.stack([rows, cols], dim=-1)
 
     def forward(self, images: torch.Tensor):
@@ -41,11 +41,14 @@ class VisionEncoder(nn.Module):
 
         Returns:
             patch_features: [B, N_p, d] (CLS token dropped; grid kept intact).
-            patch_coords: [N_p, 2] (row, col) grid coordinates, shared across the batch.
+            patch_coords: [N_p, 2] (row, col) grid coordinates, shared across the batch,
+                created on the same device as `images` (must match patch_features'
+                device so downstream modules, e.g. RPRCoAttention's rel-position
+                embedding lookups, don't get a device mismatch on GPU).
         """
         tokens = self.vit.forward_features(images)  # [B, 1 + N_p, d]
         patch_features = tokens[:, 1:, :]  # drop CLS token, keep the 2D patch grid
-        return patch_features, self.patch_coords()
+        return patch_features, self.patch_coords(device=images.device)
 
 
 def _self_test() -> bool:
