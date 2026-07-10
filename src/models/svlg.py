@@ -199,7 +199,7 @@ class SVLG(nn.Module):
         warmup_epochs: int = None,
         config: dict = None,
     ) -> torch.Tensor:
-        """Eq. (34) extended with L_MLTM: L_total = L_gen + alpha*L_MI + beta_t*L_KL + L_MLTM.
+        """Eq. (34) extended with L_MLTM: L_total = L_gen + alpha*L_MI + beta_t*L_KL + L_MLTM + L_MI_fit.
 
         beta_t follows the KL-annealing schedule of Eq. (35): linear warm-up
         from 0 to beta_max over `warmup_epochs`, so the fusion module doesn't
@@ -209,6 +209,11 @@ class SVLG(nn.Module):
         alpha, beta_max, warmup_epochs default to `config["train"]` if not
         passed explicitly (all currently unset/None in configs/config.yaml —
         to be chosen via validation).
+
+        L_MI_fit (Eq. 24b) is the vCLUB estimators' own MLE fitting loss —
+        always included at weight 1.0 (not annealed): omitting it lets the
+        estimators' parameters degrade and L_MI diverge (see
+        disentangled_fusion.VCLUB's docstring).
         """
         train_cfg = (config or {}).get("train", {})
         alpha = train_cfg.get("mi_alpha", 1.0) if alpha is None else alpha
@@ -220,7 +225,13 @@ class SVLG(nn.Module):
 
         L_MLTM = MLTM.loss(lab_x, lab_mask, x_hat)  # Eq. (8)
 
-        L_total = L_gen + alpha * fusion_losses["L_MI"] + beta_t * fusion_losses["L_KL"] + L_MLTM
+        L_total = (
+            L_gen
+            + alpha * fusion_losses["L_MI"]
+            + beta_t * fusion_losses["L_KL"]
+            + L_MLTM
+            + fusion_losses["L_MI_fit"]
+        )
         return L_total
 
 

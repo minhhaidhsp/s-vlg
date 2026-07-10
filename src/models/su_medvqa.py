@@ -160,9 +160,14 @@ class SU_MedVQA(nn.Module):
         warmup_epochs: int = None,
         config: dict = None,
     ) -> torch.Tensor:
-        """Eq. (34): L_total = L_gen + alpha*L_MI + beta_t*L_KL (no L_MLTM — V2 has no tabular branch).
+        """Eq. (34): L_total = L_gen + alpha*L_MI + beta_t*L_KL + L_MI_fit
+        (no L_MLTM — V2 has no tabular branch).
 
         beta_t follows the KL-annealing schedule of Eq. (35), same as svlg.py.
+        L_MI_fit (Eq. 24b) is the vCLUB estimator's own MLE fitting loss —
+        always included at weight 1.0 (not annealed): omitting it lets the
+        estimator's parameters degrade and L_MI diverge (see
+        disentangled_fusion.VCLUB's docstring).
         """
         train_cfg = (config or {}).get("train", {})
         alpha = train_cfg.get("mi_alpha", 1.0) if alpha is None else alpha
@@ -172,7 +177,12 @@ class SU_MedVQA(nn.Module):
         # Eq. (35): linear KL annealing schedule.
         beta_t = beta_max * min(1.0, epoch / max(1, warmup_epochs))
 
-        L_total = L_gen + alpha * fusion_losses["L_MI"] + beta_t * fusion_losses["L_KL"]
+        L_total = (
+            L_gen
+            + alpha * fusion_losses["L_MI"]
+            + beta_t * fusion_losses["L_KL"]
+            + fusion_losses["L_MI_fit"]
+        )
         return L_total
 
 

@@ -18,6 +18,7 @@ given (2 terms for V1, 1 term for V2); every other equation is unchanged.
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class VCLUB(nn.Module):
@@ -32,6 +33,18 @@ class VCLUB(nn.Module):
     from the average over all (i, j) pairs in the batch. The additive
     normalization constant of the Gaussian log-likelihood cancels in the
     difference and is dropped.
+
+    Per Cheng et al. (2020), q(y|x) must be fit SEPARATELY via maximum
+    likelihood on paired samples (`learning_loss`, Eq. 24b) — not via the
+    "positive - negative" estimate itself. `forward()` therefore uses this
+    module's OWN parameters detached (gradient still flows to `x`, i.e. into
+    the encoder, but not into backbone/fc_mu/fc_logvar). Without this split,
+    q's own parameters can minimize "positive - negative" without bound
+    simply by collapsing logvar toward its clamp floor (making the quadratic
+    term explode) — this doesn't reduce true MI, it just games the estimate,
+    and was observed empirically to diverge training loss to ~-6e6 within
+    one epoch on real data/model scale (toy self-test batches were too small/
+    short to reach it).
     """
 
     def __init__(self, x_dim: int, y_dim: int, hidden_dim: int = 64):
@@ -49,9 +62,24 @@ class VCLUB(nn.Module):
         logvar = self.fc_logvar(h).clamp(-10.0, 10.0)
         return mu, logvar
 
+    def _q_params_detached_weights(self, x: torch.Tensor):
+        """Same computation as `_q_params`, but using this module's weights
+        detached from autograd: gradient flows to `x`, never into this
+        module's own parameters. See class docstring for why."""
+        linear = self.backbone[0]
+        h = F.relu(F.linear(x, linear.weight.detach(), linear.bias.detach()))
+        mu = F.linear(h, self.fc_mu.weight.detach(), self.fc_mu.bias.detach())
+        logvar = F.linear(h, self.fc_logvar.weight.detach(), self.fc_logvar.bias.detach())
+        logvar = logvar.clamp(-10.0, 10.0)
+        return mu, logvar
+
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """Part of Eq. (24): CLUB upper bound on I(x, y) for one (shared, specific) pair."""
-        mu, logvar = self._q_params(x)  # [B, y_dim], q(y|x) for matched pairs
+        """Part of Eq. (24): CLUB upper bound on I(x, y) for one (shared, specific) pair.
+
+        Used as the disentanglement penalty added to the main loss — gradient
+        from this reaches `x` (the encoder's shared latent) but not this
+        module's own parameters (see `_q_params_detached_weights`)."""
+        mu, logvar = self._q_params_detached_weights(x)  # [B, y_dim], q(y|x) for matched pairs
 
         # Paired (positive) term: log q(y_i | x_i), constant dropped.
         positive = -0.5 * ((y - mu) ** 2 / logvar.exp() + logvar)
@@ -65,6 +93,19 @@ class VCLUB(nn.Module):
         negative = cross.sum(dim=-1).mean()
 
         return positive - negative
+
+    def learning_loss(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Eq. (24b): fits q(y|x) via maximum likelihood on paired samples —
+        trains ONLY this module's own parameters. `x`/`y` are detached so
+        gradient here never reaches the encoder/branch projections that
+        produced them; must be added into the total loss (see
+        su_medvqa.py/svlg.py's `compute_total_loss`) alongside `forward()`'s
+        estimate, or q degrades and `forward()` diverges (see class
+        docstring)."""
+        mu, logvar = self._q_params(x.detach())
+        y = y.detach()
+        nll = 0.5 * ((y - mu) ** 2 / logvar.exp() + logvar)
+        return nll.sum(dim=-1).mean()
 
 
 class DisentangledFusion(nn.Module):
@@ -119,7 +160,12 @@ class DisentangledFusion(nn.Module):
         Returns:
             z_final: [B, d_shared + sum(branch_dims)], Eq. (27).
             U: [B] per-sample uncertainty score, Eq. (28).
-            losses: dict with scalar "L_MI" (Eq. 24) and "L_KL" (Eq. 25).
+            losses: dict with scalar "L_MI" (Eq. 24), "L_KL" (Eq. 25), and
+                "L_MI_fit" (Eq. 24b) — the vCLUB MLE fitting loss. ALL THREE
+                must be added into the caller's total loss (see
+                su_medvqa.py/svlg.py's `compute_total_loss`); omitting
+                "L_MI_fit" lets the vCLUB estimator's own parameters degrade
+                and "L_MI" diverges (see VCLUB's docstring).
         """
         # Eq. (21)
         z_shared = self.proj_shared(h)
@@ -148,11 +194,15 @@ class DisentangledFusion(nn.Module):
         L_MI = sum(
             vclub(z_s_var, z_b) for vclub, z_b in zip(self.vclub_branches, z_branches)
         )
+        # Eq. (24b): MLE fitting loss for each vCLUB estimator (see VCLUB.learning_loss).
+        L_MI_fit = sum(
+            vclub.learning_loss(z_s_var, z_b) for vclub, z_b in zip(self.vclub_branches, z_branches)
+        )
 
         # Eq. (27)
         z_final = torch.cat([z_s_var, *z_branches], dim=-1)
 
-        return z_final, U, {"L_MI": L_MI, "L_KL": L_KL}
+        return z_final, U, {"L_MI": L_MI, "L_KL": L_KL, "L_MI_fit": L_MI_fit}
 
 
 def _check_config(branch_dims: list) -> bool:
@@ -172,7 +222,7 @@ def _check_config(branch_dims: list) -> bool:
     if U.shape != (B,):
         print(f"FAIL: U shape {tuple(U.shape)} != {(B,)}")
         ok = False
-    for name in ("L_MI", "L_KL"):
+    for name in ("L_MI", "L_KL", "L_MI_fit"):
         loss = losses[name]
         if loss.dim() != 0:
             print(f"FAIL: {name} is not scalar, dim={loss.dim()}")
@@ -222,6 +272,46 @@ def _check_deterministic() -> bool:
     return ok
 
 
+def _check_no_divergence() -> bool:
+    """Regression test for the divergence observed on real Colab GPU training
+    (avg_loss reaching ~-6e6 within one epoch): without `learning_loss`
+    (Eq. 24b), the vCLUB estimator's own parameters can minimize L_MI without
+    bound by collapsing logvar toward its clamp floor — this doesn't reduce
+    true MI, it games the estimate. Single-call shape checks (_check_config)
+    can't catch this; it only shows up after many optimizer steps with real
+    gradient dynamics, so this runs 200 Adam steps on a toy problem and
+    confirms L_MI stays bounded when L_MI + L_MI_fit are optimized together.
+    """
+    torch.manual_seed(0)
+    B, in_dim, d_shared = 16, 32, 8
+    model = DisentangledFusion(in_dim=in_dim, d_shared=d_shared, branch_dims=[12])
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
+
+    h = torch.randn(B, in_dim)
+    max_abs_L_MI = 0.0
+    ok = True
+    for _ in range(200):
+        optimizer.zero_grad()
+        _, _, losses = model(h)
+        loss = losses["L_MI"] + losses["L_MI_fit"]
+        if torch.isnan(loss) or torch.isinf(loss):
+            print("FAIL: loss became NaN/Inf during training")
+            ok = False
+            break
+        loss.backward()
+        optimizer.step()
+        max_abs_L_MI = max(max_abs_L_MI, losses["L_MI"].abs().item())
+
+    # Generous bound: the divergence bug this guards against reached ~1e6+
+    # magnitude, orders of magnitude past any well-behaved MI estimate here.
+    if ok and max_abs_L_MI > 1000.0:
+        print(f"FAIL: L_MI diverged over 200 steps (max |L_MI| = {max_abs_L_MI:.2f})")
+        ok = False
+
+    print("PASS: disentangled_fusion (no-divergence regression)" if ok else "FAIL: disentangled_fusion (no-divergence regression)")
+    return ok
+
+
 def _self_test() -> bool:
     # V2 (SU-MedVQA): vision-only, num_branches=1.
     ok_v2 = _check_config(branch_dims=[20])
@@ -229,8 +319,10 @@ def _self_test() -> bool:
     ok_v1 = _check_config(branch_dims=[20, 12, 16])
     # Ablation switch: deterministic=True (no reparameterization/KL/U).
     ok_det = _check_deterministic()
+    # Regression: vCLUB training must not diverge (see docstring).
+    ok_no_div = _check_no_divergence()
 
-    ok = ok_v1 and ok_v2 and ok_det
+    ok = ok_v1 and ok_v2 and ok_det and ok_no_div
     print("PASS: disentangled_fusion" if ok else "FAIL: disentangled_fusion")
     return ok
 
