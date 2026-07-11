@@ -35,6 +35,7 @@ Local CPU usage (smoke test, unchanged):
 """
 
 import argparse
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -56,6 +57,25 @@ from src.utils.config import load_version_config
 from src.utils.results_logger import ResultsLogger
 
 SYSTEM_TEXT = "You are a helpful medical VQA assistant."
+
+
+def run_backup(backup_cmd: str, label: str) -> None:
+    """Runs `backup_cmd` (a shell command, e.g. rsync to a mounted Google
+    Drive) via the shell. No-op if `backup_cmd` is falsy. Failures are
+    printed but never raised -- a transient backup hiccup (e.g. Drive FUSE
+    stall) must not abort a multi-hour training run. Called after EVERY
+    full-model epoch checkpoint and after EVERY ablation variant finishes,
+    so a Colab disconnect (e.g. running out of compute units) mid-run loses
+    at most the current in-progress epoch/variant, not everything since the
+    last time a human remembered to back up manually."""
+    if not backup_cmd:
+        return
+    print(f"  [backup: {label}] running: {backup_cmd}")
+    try:
+        subprocess.run(backup_cmd, shell=True, check=True)
+        print(f"  [backup: {label}] OK")
+    except Exception as e:
+        print(f"  [backup: {label}] FAILED (continuing training regardless): {e}")
 
 
 def build_config(n_samples_hint: int, vocab_size: int) -> dict:
@@ -273,6 +293,7 @@ def log_attention_heatmap(logger: ResultsLogger, model, test_records: list, toke
 def run_ablation(
     config: dict, train_dataloader, test_dataloader, seed: int, checkpoint_root: Path,
     logger: ResultsLogger, test_mode: bool, device, ablation_epochs: int = 1,
+    backup_cmd: str = None,
 ):
     variants = ["full", "no_rpr", "no_gate", "no_disentangle"]
     for variant in variants:
@@ -285,6 +306,9 @@ def run_ablation(
             model, train_dataloader, optimizer, num_epochs=ablation_epochs,
             checkpoint_dir=checkpoint_root / variant, experiment_version="v2",
             compute_loss_fn=loss_fn, seed=seed,
+            on_epoch_end=lambda epoch, avg_loss, path, variant=variant: run_backup(
+                backup_cmd, f"ablation:{variant} epoch {epoch}"
+            ),
         )
         epoch = load_checkpoint(written[-1])["epoch"]
 
@@ -314,6 +338,7 @@ def run_ablation(
         )
 
         print(f"  {variant}: vqa_acc={metrics['vqa_acc']:.3f} (epoch={epoch}, status=provisional)")
+        run_backup(backup_cmd, f"ablation:{variant} finished")
 
 
 def log_efficiency(
@@ -380,6 +405,12 @@ def main() -> None:
                               "(several GB for the Qwen2.5-3B+QLoRA backbone) -- a long run (e.g. 50 epochs) with "
                               "no pruning can fill local disk before training finishes. Defaults to 3 when --real "
                               "is set (unless you pass this explicitly), None (keep every epoch) otherwise.")
+    parser.add_argument("--backup-cmd", default=None,
+                         help="Shell command run after EVERY full-model epoch and after EVERY ablation variant "
+                              "finishes (e.g. 'rsync -a --delete outputs/ /content/drive/MyDrive/S-VLG/outputs/') "
+                              "-- so a Colab disconnect mid-run loses at most the current epoch/variant, not "
+                              "everything since the last manual backup. Failures print a warning but never stop "
+                              "training. Omit to disable (no automatic backup).")
     args = parser.parse_args()
 
     test_mode = not args.real
@@ -431,6 +462,7 @@ def main() -> None:
         checkpoint_dir=checkpoint_root / "full", experiment_version="v2",
         compute_loss_fn=loss_fn, seed=args.seed, resume_from=args.resume_from,
         keep_last_n_checkpoints=keep_last_checkpoints,
+        on_epoch_end=lambda epoch, avg_loss, path: run_backup(args.backup_cmd, f"full model epoch {epoch}"),
     )
     train_time_seconds = time.time() - t0  # only THIS call's wall time — if resumed, add prior run(s)' time yourself
     final_epoch = load_checkpoint(written[-1])["epoch"] if written else load_checkpoint(args.resume_from)["epoch"]
@@ -454,6 +486,10 @@ def main() -> None:
         config=config, device=device, test_mode=test_mode, peak_gpu_mem_bytes=peak_gpu_mem_bytes,
     )
 
+    # Full-model run is fully done and logged here -- back up now, BEFORE ablation starts, so
+    # the two phases are never bundled into a single all-or-nothing backup.
+    run_backup(args.backup_cmd, "full model finished (Step c)")
+
     if args.skip_ablation:
         print("\n=== Step d: ablation SKIPPED (--skip-ablation) ===")
     else:
@@ -461,10 +497,10 @@ def main() -> None:
         run_ablation(
             config, train_dataloader, test_dataloader, seed=args.seed, checkpoint_root=checkpoint_root,
             logger=logger, test_mode=test_mode, device=device, ablation_epochs=args.ablation_epochs,
+            backup_cmd=args.backup_cmd,
         )
 
     print("\n=== Step f: compile paper data ===")
-    import subprocess
     subprocess.run([sys.executable, str(PROJECT_ROOT / "scripts" / "compile_paper_data.py"), "--version", "v2"], check=True)
 
     print("\n=== Summary ===")
