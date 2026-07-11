@@ -202,8 +202,9 @@ class EarlyStopper:
     """`on_epoch_end` callback for `train()` (full model only): after every
     epoch, evaluates on the VAL split (never test -- that would leak into the
     reported final metric) and tracks the best vqa_acc seen so far. If
-    `patience` epochs pass with no improvement, returns True so `train()`
-    stops before reaching the full `--epochs` budget.
+    `patience` epochs pass with no improvement (AND epoch > min_epochs, see
+    below), returns True so `train()` stops before reaching the full
+    `--epochs` budget.
 
     Also handles backup (delegates to `run_backup`) at the same point
     per-epoch backup was already happening, and copies the checkpoint of
@@ -214,6 +215,15 @@ class EarlyStopper:
     reported numbers reflect the BEST epoch, not whatever epoch training
     happened to stop on.
 
+    min_epochs: the objective itself changes during KL annealing (Eq. 35 --
+    beta_t ramps 0 -> beta_max over `kl_warmup_epochs`, default 10), so val
+    accuracy can plateau/wobble for reasons unrelated to true convergence
+    while annealing is still in progress. Best-tracking still runs from
+    epoch 1 (a genuinely good early epoch is still worth keeping), but the
+    STOP decision is suppressed until `epoch > min_epochs` -- main() passes
+    `config["train"]["kl_warmup_epochs"]` here so patience can't be shorter
+    than the annealing window by accident.
+
     Real compute cost: runs a full val-set evaluate() (including generate()
     for OPEN questions) every single epoch -- this is the inherent cost of
     early stopping, not an implementation shortcut.
@@ -222,6 +232,7 @@ class EarlyStopper:
     def __init__(
         self, model, val_dataloader, device, patience: int, min_delta: float,
         checkpoint_dir: Path, experiment_version: str, seed: int, backup_cmd: str = None,
+        min_epochs: int = 0,
     ):
         self.model = model
         self.val_dataloader = val_dataloader
@@ -232,6 +243,7 @@ class EarlyStopper:
         self.experiment_version = experiment_version
         self.seed = seed
         self.backup_cmd = backup_cmd
+        self.min_epochs = min_epochs
         self.best_metric = -float("inf")
         self.best_epoch = None
         self.epochs_since_improvement = 0
@@ -243,13 +255,14 @@ class EarlyStopper:
         val_eval = evaluate(self.model, self.val_dataloader, self.device)
         val_acc = vqa_accuracy(val_eval["preds"], val_eval["refs"])
         improved = val_acc > self.best_metric + self.min_delta
+        previous_best = self.best_metric
 
         if improved:
             self.best_metric = val_acc
             self.best_epoch = epoch
             self.epochs_since_improvement = 0
             shutil.copy2(checkpoint_path, self.best_checkpoint_path())
-            print(f"  [early-stop] epoch {epoch}: val vqa_acc={val_acc:.4f} -> NEW BEST (was {self.best_metric:.4f})")
+            print(f"  [early-stop] epoch {epoch}: val vqa_acc={val_acc:.4f} -> NEW BEST (was {previous_best:.4f})")
             run_backup(self.backup_cmd, f"full model NEW BEST epoch {epoch}")
         else:
             self.epochs_since_improvement += 1
@@ -257,6 +270,9 @@ class EarlyStopper:
                   f"(best={self.best_metric:.4f} @ epoch {self.best_epoch}, "
                   f"{self.epochs_since_improvement}/{self.patience} epochs without improvement)")
             run_backup(self.backup_cmd, f"full model epoch {epoch}")
+
+        if epoch <= self.min_epochs:
+            return False  # still inside KL warm-up (or other configured grace period) -- never stop here
 
         if self.epochs_since_improvement >= self.patience:
             print(f"  [early-stop] no improvement for {self.patience} epochs -> stopping early "
@@ -489,6 +505,13 @@ def main() -> None:
     parser.add_argument("--early-stop-min-delta", type=float, default=0.0,
                          help="Minimum val vqa_acc improvement over the current best to reset the patience "
                               "counter and count as a new best epoch. Only used with --early-stop-patience.")
+    parser.add_argument("--early-stop-min-epoch", type=int, default=None,
+                         help="Earliest epoch early stopping is allowed to trigger a stop (best-checkpoint "
+                              "tracking still runs from epoch 1 regardless). Defaults to config['train']"
+                              "['kl_warmup_epochs'] (10) -- val accuracy can wobble for reasons unrelated to "
+                              "true convergence while KL annealing (Eq. 35) is still ramping up, so patience "
+                              "shouldn't be able to fire inside that window by accident. Only used with "
+                              "--early-stop-patience.")
     args = parser.parse_args()
 
     test_mode = not args.real
@@ -537,11 +560,15 @@ def main() -> None:
 
     early_stopper = None
     if args.early_stop_patience is not None:
+        kl_warmup_epochs = (config.get("train", {}) or {}).get("kl_warmup_epochs", 10)
+        min_epochs = kl_warmup_epochs if args.early_stop_min_epoch is None else args.early_stop_min_epoch
+        print(f"Early stopping enabled: patience={args.early_stop_patience}, min_epochs={min_epochs} "
+              f"(KL warm-up is {kl_warmup_epochs} epochs -- can't stop before that unless overridden).")
         early_stopper = EarlyStopper(
             model=full_model, val_dataloader=val_dataloader, device=device,
             patience=args.early_stop_patience, min_delta=args.early_stop_min_delta,
             checkpoint_dir=checkpoint_root / "full", experiment_version="v2", seed=args.seed,
-            backup_cmd=args.backup_cmd,
+            backup_cmd=args.backup_cmd, min_epochs=min_epochs,
         )
         on_epoch_end = early_stopper
     else:
