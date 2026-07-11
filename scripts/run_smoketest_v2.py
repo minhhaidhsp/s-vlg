@@ -35,6 +35,7 @@ Local CPU usage (smoke test, unchanged):
 """
 
 import argparse
+import shutil
 import subprocess
 import sys
 import time
@@ -195,6 +196,73 @@ def evaluate(model, dataloader, device, gamma_override: float = None) -> dict:
         "question_types": question_types, "sources": sources,
         "uncertainties": uncertainties, "correct_flags": correct_flags,
     }
+
+
+class EarlyStopper:
+    """`on_epoch_end` callback for `train()` (full model only): after every
+    epoch, evaluates on the VAL split (never test -- that would leak into the
+    reported final metric) and tracks the best vqa_acc seen so far. If
+    `patience` epochs pass with no improvement, returns True so `train()`
+    stops before reaching the full `--epochs` budget.
+
+    Also handles backup (delegates to `run_backup`) at the same point
+    per-epoch backup was already happening, and copies the checkpoint of
+    each new best epoch to a separate `..._best.pt` file -- this file is
+    NEVER touched by keep_last_n_checkpoints pruning (different filename
+    pattern), so it survives even if the best epoch is later pruned away by
+    epoch-count. `main()` reloads this file before final evaluation so the
+    reported numbers reflect the BEST epoch, not whatever epoch training
+    happened to stop on.
+
+    Real compute cost: runs a full val-set evaluate() (including generate()
+    for OPEN questions) every single epoch -- this is the inherent cost of
+    early stopping, not an implementation shortcut.
+    """
+
+    def __init__(
+        self, model, val_dataloader, device, patience: int, min_delta: float,
+        checkpoint_dir: Path, experiment_version: str, seed: int, backup_cmd: str = None,
+    ):
+        self.model = model
+        self.val_dataloader = val_dataloader
+        self.device = device
+        self.patience = patience
+        self.min_delta = min_delta
+        self.checkpoint_dir = Path(checkpoint_dir)
+        self.experiment_version = experiment_version
+        self.seed = seed
+        self.backup_cmd = backup_cmd
+        self.best_metric = -float("inf")
+        self.best_epoch = None
+        self.epochs_since_improvement = 0
+
+    def best_checkpoint_path(self) -> Path:
+        return self.checkpoint_dir / f"{self.experiment_version}_seed{self.seed}_best.pt"
+
+    def __call__(self, epoch: int, avg_loss: float, checkpoint_path) -> bool:
+        val_eval = evaluate(self.model, self.val_dataloader, self.device)
+        val_acc = vqa_accuracy(val_eval["preds"], val_eval["refs"])
+        improved = val_acc > self.best_metric + self.min_delta
+
+        if improved:
+            self.best_metric = val_acc
+            self.best_epoch = epoch
+            self.epochs_since_improvement = 0
+            shutil.copy2(checkpoint_path, self.best_checkpoint_path())
+            print(f"  [early-stop] epoch {epoch}: val vqa_acc={val_acc:.4f} -> NEW BEST (was {self.best_metric:.4f})")
+            run_backup(self.backup_cmd, f"full model NEW BEST epoch {epoch}")
+        else:
+            self.epochs_since_improvement += 1
+            print(f"  [early-stop] epoch {epoch}: val vqa_acc={val_acc:.4f} "
+                  f"(best={self.best_metric:.4f} @ epoch {self.best_epoch}, "
+                  f"{self.epochs_since_improvement}/{self.patience} epochs without improvement)")
+            run_backup(self.backup_cmd, f"full model epoch {epoch}")
+
+        if self.epochs_since_improvement >= self.patience:
+            print(f"  [early-stop] no improvement for {self.patience} epochs -> stopping early "
+                  f"(best epoch={self.best_epoch}, val vqa_acc={self.best_metric:.4f})")
+            return True
+        return False
 
 
 def log_table6_and_table7(logger: ResultsLogger, eval_out: dict, seed: int, epoch: int, config: dict):
@@ -411,6 +479,16 @@ def main() -> None:
                               "-- so a Colab disconnect mid-run loses at most the current epoch/variant, not "
                               "everything since the last manual backup. Failures print a warning but never stop "
                               "training. Omit to disable (no automatic backup).")
+    parser.add_argument("--early-stop-patience", type=int, default=None,
+                         help="Stop full-model training early if val vqa_acc doesn't improve for this many "
+                              "consecutive epochs. Evaluates the FULL val split after EVERY epoch (real added "
+                              "compute cost, including generate() for OPEN questions -- this is the inherent "
+                              "cost of early stopping, not optional). Final evaluation (Table 6/7/10/11) uses "
+                              "the BEST epoch's checkpoint, not whatever epoch training happened to stop on. "
+                              "Disabled by default (trains the full --epochs count, matching prior behavior).")
+    parser.add_argument("--early-stop-min-delta", type=float, default=0.0,
+                         help="Minimum val vqa_acc improvement over the current best to reset the patience "
+                              "counter and count as a new best epoch. Only used with --early-stop-patience.")
     args = parser.parse_args()
 
     test_mode = not args.real
@@ -443,6 +521,7 @@ def main() -> None:
     print(f"Combined: train={len(train_records)}, val+test (risk-coverage)={len(val_test_records)}")
 
     train_dataloader = build_dataloader(train_records, tokenizer, batch_size=args.batch_size, shuffle=True)
+    val_dataloader = build_dataloader(val_records, tokenizer, batch_size=args.batch_size, shuffle=False)
     test_dataloader = build_dataloader(test_records, tokenizer, batch_size=args.batch_size, shuffle=False)
     val_test_dataloader = build_dataloader(val_test_records, tokenizer, batch_size=args.batch_size, shuffle=False)
 
@@ -456,16 +535,38 @@ def main() -> None:
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
 
+    early_stopper = None
+    if args.early_stop_patience is not None:
+        early_stopper = EarlyStopper(
+            model=full_model, val_dataloader=val_dataloader, device=device,
+            patience=args.early_stop_patience, min_delta=args.early_stop_min_delta,
+            checkpoint_dir=checkpoint_root / "full", experiment_version="v2", seed=args.seed,
+            backup_cmd=args.backup_cmd,
+        )
+        on_epoch_end = early_stopper
+    else:
+        on_epoch_end = lambda epoch, avg_loss, path: run_backup(args.backup_cmd, f"full model epoch {epoch}")
+
     t0 = time.time()
     written = train(
         full_model, train_dataloader, optimizer, num_epochs=args.epochs,
         checkpoint_dir=checkpoint_root / "full", experiment_version="v2",
         compute_loss_fn=loss_fn, seed=args.seed, resume_from=args.resume_from,
         keep_last_n_checkpoints=keep_last_checkpoints,
-        on_epoch_end=lambda epoch, avg_loss, path: run_backup(args.backup_cmd, f"full model epoch {epoch}"),
+        on_epoch_end=on_epoch_end,
     )
     train_time_seconds = time.time() - t0  # only THIS call's wall time — if resumed, add prior run(s)' time yourself
-    final_epoch = load_checkpoint(written[-1])["epoch"] if written else load_checkpoint(args.resume_from)["epoch"]
+
+    if early_stopper is not None and early_stopper.best_epoch is not None:
+        print(f"Early stopping: reloading BEST checkpoint (epoch {early_stopper.best_epoch}, "
+              f"val vqa_acc={early_stopper.best_metric:.4f}) for final evaluation -- "
+              f"training ran {len(written)} epoch(s) but the last {early_stopper.epochs_since_improvement} "
+              f"of those had no improvement.")
+        best_ckpt = load_checkpoint(early_stopper.best_checkpoint_path())
+        full_model.load_state_dict(best_ckpt["model_state_dict"])
+        final_epoch = early_stopper.best_epoch
+    else:
+        final_epoch = load_checkpoint(written[-1])["epoch"] if written else load_checkpoint(args.resume_from)["epoch"]
     print(f"Trained {len(written)} epoch(s) this run in {train_time_seconds:.1f}s "
           f"({train_time_seconds / max(1, len(written)):.1f}s/epoch) -> final epoch={final_epoch}")
 

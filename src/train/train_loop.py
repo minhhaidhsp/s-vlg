@@ -63,7 +63,12 @@ def train(
         seed: random seed identifying this run (part of the checkpoint filename).
             Ignored if `resume_from` is given — the checkpoint's own seed wins.
         resume_from: path to a checkpoint to resume training from.
-        on_epoch_end: optional callback(epoch, avg_loss, checkpoint_path).
+        on_epoch_end: optional callback(epoch, avg_loss, checkpoint_path). If it
+            returns a truthy value, training stops after that epoch (the
+            checkpoint for that epoch is already saved/pruned before the
+            callback runs) instead of continuing to num_epochs -- this is how
+            early stopping is implemented (see run_smoketest_v2.py's
+            EarlyStopper, which evaluates on the val split each epoch).
         max_grad_norm: gradient clipping threshold (torch.nn.utils.clip_grad_norm_),
             applied every step BEFORE optimizer.step(). Without this, plain SGD
             on this hybrid ViT+LM architecture reliably diverges to NaN loss
@@ -137,7 +142,11 @@ def train(
             _prune_old_checkpoints(checkpoint_dir, experiment_version, seed, keep_last_n_checkpoints)
 
         if on_epoch_end is not None:
-            on_epoch_end(epoch, avg_loss, path)
+            stop = on_epoch_end(epoch, avg_loss, path)
+            if stop:
+                print(f"[{experiment_version} seed={seed}] on_epoch_end requested early stop "
+                      f"after epoch {epoch}/{num_epochs}")
+                break
 
     return written
 
@@ -254,6 +263,24 @@ def _self_test() -> bool:
         expected_remaining = ["v2_seed1_epoch004.pt", "v2_seed1_epoch005.pt"]
         if remaining != expected_remaining:
             print(f"FAIL: keep_last_n_checkpoints=2 should leave {expected_remaining}, got {remaining}")
+            ok = False
+
+        # --- on_epoch_end returning True -> stop before num_epochs is reached.
+        torch.manual_seed(0)
+        model4 = SU_MedVQA(config, test_mode=True)
+        optimizer4 = torch.optim.SGD(model4.parameters(), lr=1e-3)
+
+        written_early = train(
+            model4, dataloader, optimizer4, num_epochs=10,
+            checkpoint_dir=tmp_dir / "checkpoints_early", experiment_version="v2",
+            compute_loss_fn=compute_loss_fn, seed=2,
+            on_epoch_end=lambda epoch, avg_loss, path: epoch >= 3,  # stop right after epoch 3
+        )
+        if len(written_early) != 3:
+            print(f"FAIL: on_epoch_end returning True at epoch 3 should stop after 3 epochs, got {len(written_early)}")
+            ok = False
+        if written_early and load_checkpoint(written_early[-1])["epoch"] != 3:
+            print(f"FAIL: last checkpoint should be epoch 3, got {load_checkpoint(written_early[-1])['epoch']}")
             ok = False
 
     finally:
