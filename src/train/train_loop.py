@@ -20,14 +20,26 @@ from src.train.checkpoint_utils import (
 
 
 def _prune_old_checkpoints(checkpoint_dir, experiment_version: str, seed: int, keep_last_n: int):
-    """Deletes all but the `keep_last_n` most-recent-epoch checkpoints for this
-    (experiment_version, seed) in `checkpoint_dir`. Each checkpoint saves the
-    FULL model.state_dict() (base weights included, not just trainable ones)
-    + optimizer state — for a real QLoRA run on a ~3B backbone this is several
-    GB per epoch, so leaving all of them on disk across a long run (e.g. 50
-    epochs) can exhaust local disk well before training finishes."""
+    """Deletes all but the `keep_last_n` most-recently-WRITTEN checkpoints for
+    this (experiment_version, seed) in `checkpoint_dir`. Each checkpoint saves
+    the FULL model.state_dict() (base weights included, not just trainable
+    ones) + optimizer state — for a real QLoRA run on a ~3B backbone this is
+    several GB per epoch, so leaving all of them on disk across a long run
+    (e.g. 50 epochs) can exhaust local disk well before training finishes.
+
+    Sorts by file mtime, NOT by filename/epoch number: a checkpoint_dir can
+    contain leftover files from a PREVIOUS, unrelated training attempt at the
+    same (experiment_version, seed) -- e.g. synced back from Drive at the
+    start of a fresh run that starts counting epochs at 1 again. Sorting by
+    epoch-number-in-filename would then treat "epoch013.pt" (stale, from the
+    old run) as newer than the just-written "epoch001.pt" (this run) and
+    delete the wrong one -- confirmed in practice: this crashed EarlyStopper
+    with FileNotFoundError trying to copy an epoch-1 checkpoint that pruning
+    had just deleted, because stale epoch013-015.pt files from an earlier
+    aborted run were still sitting in the same directory.
+    """
     pattern = f"{experiment_version}_seed{seed}_epoch*.pt"
-    ckpts = sorted(Path(checkpoint_dir).glob(pattern), key=lambda p: p.name)
+    ckpts = sorted(Path(checkpoint_dir).glob(pattern), key=lambda p: p.stat().st_mtime)
     for old in ckpts[:-keep_last_n]:
         old.unlink()
 
@@ -263,6 +275,38 @@ def _self_test() -> bool:
         expected_remaining = ["v2_seed1_epoch004.pt", "v2_seed1_epoch005.pt"]
         if remaining != expected_remaining:
             print(f"FAIL: keep_last_n_checkpoints=2 should leave {expected_remaining}, got {remaining}")
+            ok = False
+
+        # --- keep_last_n_checkpoints must sort by mtime, not by epoch-number-in-filename:
+        # regression test for a real crash (Colab) where a checkpoint_dir synced back from
+        # Drive still had STALE files from an earlier, unrelated run at higher epoch numbers
+        # (e.g. epoch013.pt) than the new run's epoch001.pt -- name-based sorting treated
+        # the old epoch013.pt as "newer" and deleted the just-written epoch001.pt instead,
+        # crashing EarlyStopper's shutil.copy2 with FileNotFoundError.
+        import os
+        import time
+
+        stale_dir = tmp_dir / "checkpoints_stale"
+        stale_dir.mkdir(parents=True)
+        old_time = time.time() - 1000  # far in the past
+        for stale_epoch in (13, 99):  # high epoch numbers, but OLDEST mtime
+            stale_path = checkpoint_path(stale_dir, "v2", seed=1, epoch=stale_epoch)
+            save_checkpoint(stale_path, model3, optimizer3, epoch=stale_epoch, seed=1, experiment_version="v2")
+            os.utime(stale_path, (old_time, old_time))
+
+        torch.manual_seed(0)
+        model5 = SU_MedVQA(config, test_mode=True)
+        optimizer5 = torch.optim.SGD(model5.parameters(), lr=1e-3)
+        train(
+            model5, dataloader, optimizer5, num_epochs=2,
+            checkpoint_dir=stale_dir, experiment_version="v2",
+            compute_loss_fn=compute_loss_fn, seed=1, keep_last_n_checkpoints=1,
+        )
+        remaining_stale = sorted(p.name for p in stale_dir.glob("v2_seed1_epoch*.pt"))
+        if remaining_stale != ["v2_seed1_epoch002.pt"]:
+            print(f"FAIL: pruning should keep only the just-written epoch002.pt "
+                  f"(newest by mtime, regardless of the stale epoch013/099 filenames), "
+                  f"got {remaining_stale}")
             ok = False
 
         # --- on_epoch_end returning True -> stop before num_epochs is reached.
