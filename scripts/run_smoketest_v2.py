@@ -377,7 +377,7 @@ def log_attention_heatmap(logger: ResultsLogger, model, test_records: list, toke
 def run_ablation(
     config: dict, train_dataloader, test_dataloader, seed: int, checkpoint_root: Path,
     logger: ResultsLogger, test_mode: bool, device, ablation_epochs: int = 1,
-    backup_cmd: str = None,
+    backup_cmd: str = None, keep_last_checkpoints: int = None,
 ):
     variants = ["full", "no_rpr", "no_gate", "no_disentangle"]
     for variant in variants:
@@ -386,10 +386,14 @@ def run_ablation(
         optimizer = make_optimizer(model, config, test_mode)
         loss_fn = make_loss_fn(config, device)
 
+        # "ablation" subdir keeps these checkpoints out of checkpoint_root/"full", which is
+        # ALSO the full (non-ablation) model's own checkpoint dir -- writing both there under
+        # the same variant="full" name mixed unrelated checkpoints together (confirmed in
+        # practice: an ablation "full" epoch001.pt sat alongside the real run's epoch009-011).
         written = train(
             model, train_dataloader, optimizer, num_epochs=ablation_epochs,
-            checkpoint_dir=checkpoint_root / variant, experiment_version="v2",
-            compute_loss_fn=loss_fn, seed=seed,
+            checkpoint_dir=checkpoint_root / "ablation" / variant, experiment_version="v2",
+            compute_loss_fn=loss_fn, seed=seed, keep_last_n_checkpoints=keep_last_checkpoints,
             on_epoch_end=lambda epoch, avg_loss, path, variant=variant: run_backup(
                 backup_cmd, f"ablation:{variant} epoch {epoch}"
             ),
@@ -634,7 +638,7 @@ def main() -> None:
         run_ablation(
             config, train_dataloader, test_dataloader, seed=args.seed, checkpoint_root=checkpoint_root,
             logger=logger, test_mode=test_mode, device=device, ablation_epochs=args.ablation_epochs,
-            backup_cmd=args.backup_cmd,
+            backup_cmd=args.backup_cmd, keep_last_checkpoints=keep_last_checkpoints,
         )
 
     print("\n=== Step f: compile paper data ===")
