@@ -171,8 +171,14 @@ class DisentangledFusion(nn.Module):
         z_shared = self.proj_shared(h)
         z_branches = [proj(h) for proj in self.proj_branches]
 
-        # Eq. (22)
-        mu = self.fc_mu(z_shared)
+        # Eq. (22). mu is clamped for the same reason logvar is: L_KL's mu**2 term is
+        # unbounded above with no natural restoring force while beta_t (Eq. 35) is still
+        # small during KL warm-up -- mu can drift to a large magnitude across many epochs
+        # without being penalized enough to notice, then once beta_t reaches its full
+        # weight post-warmup, 0.5*mu**2 explodes immediately (observed empirically: avg
+        # training loss went from ~10 to 1.7e9 to 1.0e11 within a few epochs of warm-up
+        # ending on real Colab GPU training with a real 3B-scale model).
+        mu = self.fc_mu(z_shared).clamp(-10.0, 10.0)
         logvar = self.fc_logvar(z_shared).clamp(-10.0, 10.0)
 
         if self.deterministic:
@@ -312,6 +318,54 @@ def _check_no_divergence() -> bool:
     return ok
 
 
+def _check_kl_no_divergence() -> bool:
+    """Regression test for the mu-explosion divergence observed on real Colab
+    GPU training (avg_loss reaching ~1e11 within a few epochs, starting right
+    when KL warm-up finished and beta_t hit its full weight).
+
+    L_KL minimized in isolation is self-stabilizing (it always pulls mu -> 0),
+    so it can't reproduce the real failure mode by itself -- the real training
+    loop also has L_gen (the decoder's language-modeling loss), which has its
+    own incentive to make z_s_var (derived from mu) large/expressive to encode
+    information, fighting against L_KL's pull toward 0. This test adds a toy
+    stand-in for that competing pressure (`L_task = -mu.pow(2).sum()`, i.e.
+    minimizing it explicitly rewards LARGE mu) and runs a low-beta "warm-up"
+    phase (mu can drift unchecked, matching real annealing where beta_t is
+    still small) followed by a full-beta phase (matching beta_t=1.0 after
+    warm-up) -- this is where the unclamped-mu bug actually blew up.
+    """
+    torch.manual_seed(0)
+    B, in_dim, d_shared = 16, 32, 8
+    model = DisentangledFusion(in_dim=in_dim, d_shared=d_shared, branch_dims=[12])
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
+
+    h = torch.randn(B, in_dim)
+    warmup_steps = 100
+    max_L_KL = 0.0
+    ok = True
+    for step in range(300):
+        beta_t = 0.01 if step < warmup_steps else 1.0  # matches real annealing: small during warm-up, full after
+        optimizer.zero_grad()
+        z_final, _, losses = model(h)
+        L_task = -z_final.pow(2).sum(dim=-1).mean()  # toy stand-in for L_gen's pull toward large/expressive features
+        loss = losses["L_MI"] + losses["L_MI_fit"] + beta_t * losses["L_KL"] + 0.1 * L_task
+        if torch.isnan(loss) or torch.isinf(loss):
+            print("FAIL: loss became NaN/Inf during training")
+            ok = False
+            break
+        loss.backward()
+        optimizer.step()
+        max_L_KL = max(max_L_KL, losses["L_KL"].item())
+
+    # Generous bound: the divergence bug this guards against reached ~1e9+ magnitude.
+    if ok and max_L_KL > 10_000.0:
+        print(f"FAIL: L_KL diverged over 300 steps at beta_t=1.0 (max L_KL = {max_L_KL:.2f})")
+        ok = False
+
+    print("PASS: disentangled_fusion (KL no-divergence regression)" if ok else "FAIL: disentangled_fusion (KL no-divergence regression)")
+    return ok
+
+
 def _self_test() -> bool:
     # V2 (SU-MedVQA): vision-only, num_branches=1.
     ok_v2 = _check_config(branch_dims=[20])
@@ -321,8 +375,10 @@ def _self_test() -> bool:
     ok_det = _check_deterministic()
     # Regression: vCLUB training must not diverge (see docstring).
     ok_no_div = _check_no_divergence()
+    # Regression: mu must not explode once beta_t reaches full weight (see docstring).
+    ok_kl_no_div = _check_kl_no_divergence()
 
-    ok = ok_v1 and ok_v2 and ok_det and ok_no_div
+    ok = ok_v1 and ok_v2 and ok_det and ok_no_div and ok_kl_no_div
     print("PASS: disentangled_fusion" if ok else "FAIL: disentangled_fusion")
     return ok
 
