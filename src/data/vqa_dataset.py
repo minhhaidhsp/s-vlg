@@ -48,10 +48,22 @@ def build_question_tokenizer(test_mode: bool = True, tiny_model_name: str = "ssh
     return tokenizer, len(tokenizer)
 
 
-def load_vqa_records(source: str, n: int = None, seed: int = 0) -> list:
+def load_vqa_records(source: str, n: int = None, seed: int = 0, fraction: float = None) -> list:
     """Load all VQASample records for `source` ("vqa-rad"/"slake"), optionally
-    capped to a seeded random subset of size `n` (for smoke tests)."""
+    capped to a seeded random subset.
+
+    Args:
+        n: absolute sample cap (for smoke tests). Ignored if `fraction` is given.
+        fraction: take this fraction of THIS dataset's own size (e.g. 0.2 for ~1/5).
+            Use this instead of `n` when subsetting multiple datasets of very
+            different sizes together (VQA-RAD ~2.2k vs SLAKE ~7k) -- a single
+            shared `n` would distort their natural size ratio in the combined
+            set, while `fraction` preserves it (each dataset shrinks by the
+            same proportion).
+    """
     records = list(load_eval_vqa(source))
+    if fraction is not None:
+        n = round(len(records) * fraction)
     if n is not None and n < len(records):
         rng = random.Random(seed)
         records = rng.sample(records, n)

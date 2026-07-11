@@ -470,7 +470,13 @@ def log_efficiency(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--n", type=int, default=200,
-                         help="Samples per dataset (VQA-RAD, SLAKE). 0 or negative = full dataset (no subsetting).")
+                         help="Samples per dataset (VQA-RAD, SLAKE). 0 or negative = full dataset (no subsetting). "
+                              "Ignored if --subset-fraction is given.")
+    parser.add_argument("--subset-fraction", type=float, default=None,
+                         help="Take this fraction of EACH dataset independently (e.g. 0.2 for ~1/5), preserving "
+                              "VQA-RAD's and SLAKE's natural size ratio in the combined set -- a single shared "
+                              "--n would distort that ratio since the two datasets are very different sizes "
+                              "(~2.2k vs ~7k). Overrides --n when set.")
     parser.add_argument("--epochs", type=int, default=2, help="Epochs for the full model")
     parser.add_argument("--ablation-epochs", type=int, default=1, help="Epochs per ablation variant")
     parser.add_argument("--seed", type=int, default=0)
@@ -528,8 +534,8 @@ def main() -> None:
     tokenizer, vocab_size = build_question_tokenizer(test_mode=test_mode)
     config = build_config(n, vocab_size)
 
-    vqa_rad = load_vqa_records("vqa-rad", n=n, seed=args.seed)
-    slake = load_vqa_records("slake", n=n, seed=args.seed)
+    vqa_rad = load_vqa_records("vqa-rad", n=n, seed=args.seed, fraction=args.subset_fraction)
+    slake = load_vqa_records("slake", n=n, seed=args.seed, fraction=args.subset_fraction)
     vqa_rad_splits = split_records(vqa_rad, seed=args.seed)
     slake_splits = split_records(slake, seed=args.seed)
     print(f"VQA-RAD: {len(vqa_rad)} samples -> train={len(vqa_rad_splits['train'])}, "
