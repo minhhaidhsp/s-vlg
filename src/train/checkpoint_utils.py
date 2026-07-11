@@ -56,9 +56,34 @@ def load_checkpoint(path, map_location: str = "cpu") -> dict:
     return torch.load(path, map_location=map_location, weights_only=False)
 
 
+# Keys bitsandbytes attaches for 4-bit (NF4) quantized base-model weights when
+# state_dict() is called on a --real (QLoRA) model. These represent the FROZEN
+# base Qwen weights (never change during training -- only LoRA/ViT/fusion do),
+# but a freshly-constructed model's own state_dict() doesn't always expose them
+# under the same strict-matching contract load_state_dict expects, so strict
+# loading spuriously fails even though nothing meaningful is actually missing.
+_BNB_QUANT_KEY_SUFFIXES = (
+    ".absmax", ".quant_map", ".nested_absmax", ".nested_quant_map",
+    ".quant_state.bitsandbytes__nf4",
+)
+
+
 def restore_model_and_optimizer(checkpoint: dict, model: torch.nn.Module, optimizer: torch.optim.Optimizer = None):
-    """Load a checkpoint's state into an existing model (+ optimizer, if given)."""
-    model.load_state_dict(checkpoint["model_state_dict"])
+    """Load a checkpoint's state into an existing model (+ optimizer, if given).
+
+    Uses strict=False and then verifies any key mismatch is ONLY the expected
+    bitsandbytes quantization-metadata pattern (see _BNB_QUANT_KEY_SUFFIXES) --
+    a real missing/unexpected key still raises, so an actual bug won't
+    silently pass.
+    """
+    load_result = model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+    unexpected_real = [k for k in load_result.unexpected_keys if not k.endswith(_BNB_QUANT_KEY_SUFFIXES)]
+    missing_real = [k for k in load_result.missing_keys if not k.endswith(_BNB_QUANT_KEY_SUFFIXES)]
+    if unexpected_real or missing_real:
+        raise RuntimeError(
+            f"Loading checkpoint left real (non-quantization-metadata) key "
+            f"mismatches -- unexpected={unexpected_real[:5]}, missing={missing_real[:5]}"
+        )
     if optimizer is not None and checkpoint.get("optimizer_state_dict") is not None:
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     return model, optimizer

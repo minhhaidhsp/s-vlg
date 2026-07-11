@@ -52,7 +52,7 @@ import torch
 from src.data.vqa_dataset import build_dataloader, build_question_tokenizer, load_vqa_records, split_records
 from src.eval.metrics import bleu_score, breakdown_by_category, closed_question_prf1_auc, exact_match, risk_coverage_curve, vqa_accuracy
 from src.models.su_medvqa import SU_MedVQA
-from src.train.checkpoint_utils import load_checkpoint
+from src.train.checkpoint_utils import load_checkpoint, restore_model_and_optimizer
 from src.train.train_loop import train
 from src.utils.config import load_version_config
 from src.utils.results_logger import ResultsLogger
@@ -596,27 +596,10 @@ def main() -> None:
               f"training ran {len(written)} epoch(s) but the last {early_stopper.epochs_since_improvement} "
               f"of those had no improvement.")
         best_ckpt = load_checkpoint(early_stopper.best_checkpoint_path())
-        # strict=False: a --real checkpoint's state_dict includes bitsandbytes 4-bit
-        # quantization metadata for the FROZEN base Qwen weights (keys ending in
-        # .absmax/.quant_map/.quant_state.bitsandbytes__nf4/etc) that load_state_dict's
-        # strict key-matching doesn't recognize as loadable, even though the actual
-        # values never change during training (only LoRA/ViT/fusion do) -- so it's safe
-        # to skip re-loading them, the live model's own copy is already correct. Verify
-        # the mismatch is ONLY this expected pattern, not a sign of a real bug.
-        load_result = full_model.load_state_dict(best_ckpt["model_state_dict"], strict=False)
-        bnb_quant_suffixes = (
-            ".absmax", ".quant_map", ".nested_absmax", ".nested_quant_map",
-            ".quant_state.bitsandbytes__nf4",
-        )
-        unexpected_real = [k for k in load_result.unexpected_keys if not k.endswith(bnb_quant_suffixes)]
-        missing_real = [k for k in load_result.missing_keys if not k.endswith(bnb_quant_suffixes)]
-        if unexpected_real or missing_real:
-            raise RuntimeError(
-                f"Loading best checkpoint left real (non-quantization-metadata) key "
-                f"mismatches -- unexpected={unexpected_real[:5]}, missing={missing_real[:5]}"
-            )
-        print(f"Loaded best checkpoint (ignored {len(load_result.unexpected_keys)} "
-              f"bitsandbytes quantization-metadata keys for the frozen base model).")
+        # Shared with train()'s --resume-from path: handles the bitsandbytes 4-bit
+        # quantization-metadata key mismatch (frozen base Qwen weights) that a plain
+        # strict=True load_state_dict spuriously fails on -- see checkpoint_utils.py.
+        restore_model_and_optimizer(best_ckpt, full_model)
         final_epoch = early_stopper.best_epoch
     else:
         final_epoch = load_checkpoint(written[-1])["epoch"] if written else load_checkpoint(args.resume_from)["epoch"]
