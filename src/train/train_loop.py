@@ -19,6 +19,19 @@ from src.train.checkpoint_utils import (
 )
 
 
+def _prune_old_checkpoints(checkpoint_dir, experiment_version: str, seed: int, keep_last_n: int):
+    """Deletes all but the `keep_last_n` most-recent-epoch checkpoints for this
+    (experiment_version, seed) in `checkpoint_dir`. Each checkpoint saves the
+    FULL model.state_dict() (base weights included, not just trainable ones)
+    + optimizer state — for a real QLoRA run on a ~3B backbone this is several
+    GB per epoch, so leaving all of them on disk across a long run (e.g. 50
+    epochs) can exhaust local disk well before training finishes."""
+    pattern = f"{experiment_version}_seed{seed}_epoch*.pt"
+    ckpts = sorted(Path(checkpoint_dir).glob(pattern), key=lambda p: p.name)
+    for old in ckpts[:-keep_last_n]:
+        old.unlink()
+
+
 def train(
     model,
     dataloader,
@@ -32,6 +45,7 @@ def train(
     on_epoch_end=None,
     max_grad_norm: float = 1.0,
     show_progress: bool = True,
+    keep_last_n_checkpoints: int = None,
 ) -> list:
     """Train `model` for up to `num_epochs`, checkpointing every epoch.
 
@@ -60,6 +74,14 @@ def train(
             with a live running-average loss — useful on Colab for long full-
             dataset runs. Falls back to no bar (silent per-batch) if tqdm
             isn't installed.
+        keep_last_n_checkpoints: if set, delete older-epoch checkpoints for
+            this (experiment_version, seed) after each save, keeping only the
+            most recent N. Default None keeps every epoch's checkpoint (the
+            original behavior, needed if you want to evaluate/compare
+            arbitrary intermediate epochs later) — set this for long real
+            runs where full-precision-equivalent checkpoints are large enough
+            (several GB each for a ~3B QLoRA backbone) that keeping all of
+            them risks filling local disk before training finishes.
 
     Returns:
         List of checkpoint paths written during this call (one per epoch trained).
@@ -110,6 +132,9 @@ def train(
         written.append(path)
         print(f"[{experiment_version} seed={seed}] epoch {epoch}/{num_epochs} "
               f"avg_loss={avg_loss:.4f} -> checkpoint: {path}")
+
+        if keep_last_n_checkpoints is not None:
+            _prune_old_checkpoints(checkpoint_dir, experiment_version, seed, keep_last_n_checkpoints)
 
         if on_epoch_end is not None:
             on_epoch_end(epoch, avg_loss, path)
@@ -211,6 +236,24 @@ def _self_test() -> bool:
             ok = False
         if load_checkpoint(written_resume[0])["seed"] != 7:
             print("FAIL: resumed run should inherit the checkpoint's seed (7), not a new one")
+            ok = False
+
+        # --- keep_last_n_checkpoints: train 5 epochs keeping only the last 2 ->
+        # only epoch004/epoch005 should remain on disk (earlier ones pruned).
+        torch.manual_seed(0)
+        model3 = SU_MedVQA(config, test_mode=True)
+        optimizer3 = torch.optim.SGD(model3.parameters(), lr=1e-3)
+        prune_dir = tmp_dir / "checkpoints_pruned"
+
+        train(
+            model3, dataloader, optimizer3, num_epochs=5,
+            checkpoint_dir=prune_dir, experiment_version="v2",
+            compute_loss_fn=compute_loss_fn, seed=1, keep_last_n_checkpoints=2,
+        )
+        remaining = sorted(p.name for p in prune_dir.glob("v2_seed1_epoch*.pt"))
+        expected_remaining = ["v2_seed1_epoch004.pt", "v2_seed1_epoch005.pt"]
+        if remaining != expected_remaining:
+            print(f"FAIL: keep_last_n_checkpoints=2 should leave {expected_remaining}, got {remaining}")
             ok = False
 
     finally:

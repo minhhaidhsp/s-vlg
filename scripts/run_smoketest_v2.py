@@ -374,12 +374,21 @@ def main() -> None:
                               "(e.g. after a Colab disconnect) — restores model/optimizer/epoch/seed.")
     parser.add_argument("--skip-ablation", action="store_true",
                          help="Skip Step d (4 ablation variants) — useful for a quick 1-epoch timing calibration run.")
+    parser.add_argument("--keep-last-checkpoints", type=int, default=None,
+                         help="Keep only the N most recent full-model epoch checkpoints, deleting older ones as "
+                              "training proceeds. Each --real checkpoint saves the full model+optimizer state "
+                              "(several GB for the Qwen2.5-3B+QLoRA backbone) -- a long run (e.g. 50 epochs) with "
+                              "no pruning can fill local disk before training finishes. Defaults to 3 when --real "
+                              "is set (unless you pass this explicitly), None (keep every epoch) otherwise.")
     args = parser.parse_args()
 
     test_mode = not args.real
     n = args.n if args.n and args.n > 0 else None
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     checkpoint_root = PROJECT_ROOT / "outputs" / "checkpoints" / ("v2_smoketest" if test_mode else "v2_real")
+    keep_last_checkpoints = args.keep_last_checkpoints
+    if keep_last_checkpoints is None and args.real:
+        keep_last_checkpoints = 3
 
     print(f"mode={'test_mode (tiny CPU debug)' if test_mode else 'REAL (Qwen2.5+QLoRA)'}  device={device}")
 
@@ -421,6 +430,7 @@ def main() -> None:
         full_model, train_dataloader, optimizer, num_epochs=args.epochs,
         checkpoint_dir=checkpoint_root / "full", experiment_version="v2",
         compute_loss_fn=loss_fn, seed=args.seed, resume_from=args.resume_from,
+        keep_last_n_checkpoints=keep_last_checkpoints,
     )
     train_time_seconds = time.time() - t0  # only THIS call's wall time — if resumed, add prior run(s)' time yourself
     final_epoch = load_checkpoint(written[-1])["epoch"] if written else load_checkpoint(args.resume_from)["epoch"]
