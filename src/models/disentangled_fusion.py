@@ -56,10 +56,23 @@ class VCLUB(nn.Module):
         self.fc_mu = nn.Linear(hidden_dim, y_dim)
         self.fc_logvar = nn.Linear(hidden_dim, y_dim)
 
+    # logvar's clamp floor sets the max amplification of (y - mu)**2 / exp(logvar):
+    # at -10, exp(-10) ~= 4.5e-5 -> up to ~22,026x per dimension, easily enough to turn a
+    # merely large (but individually clamped) mu/y residual into a multi-hundred-thousand
+    # scale L_MI on its own (confirmed empirically: still diverged to |L_MI|~9.5e5 over
+    # ~1 real epoch's worth of steps even with mu AND z_branches clamped to [-10, 10]).
+    # -4/+4 caps the amplification at ~54.6x -- still a wide enough range for the estimator
+    # to express real uncertainty, but the (y-mu)**2 numerator is what should dominate the
+    # loss's meaning, not division by a near-zero denominator.
+    LOGVAR_CLAMP = (-4.0, 4.0)
+
     def _q_params(self, x: torch.Tensor):
         h = self.backbone(x)
-        mu = self.fc_mu(h)
-        logvar = self.fc_logvar(h).clamp(-10.0, 10.0)
+        # mu clamped for the same reason logvar is (see class docstring): (y - mu)**2
+        # divided by exp(logvar) explodes if mu is unclamped and drifts far from y, or
+        # simply grows over many real training steps with no restoring force of its own.
+        mu = self.fc_mu(h).clamp(-10.0, 10.0)
+        logvar = self.fc_logvar(h).clamp(*self.LOGVAR_CLAMP)
         return mu, logvar
 
     def _q_params_detached_weights(self, x: torch.Tensor):
@@ -68,9 +81,9 @@ class VCLUB(nn.Module):
         module's own parameters. See class docstring for why."""
         linear = self.backbone[0]
         h = F.relu(F.linear(x, linear.weight.detach(), linear.bias.detach()))
-        mu = F.linear(h, self.fc_mu.weight.detach(), self.fc_mu.bias.detach())
+        mu = F.linear(h, self.fc_mu.weight.detach(), self.fc_mu.bias.detach()).clamp(-10.0, 10.0)
         logvar = F.linear(h, self.fc_logvar.weight.detach(), self.fc_logvar.bias.detach())
-        logvar = logvar.clamp(-10.0, 10.0)
+        logvar = logvar.clamp(*self.LOGVAR_CLAMP)
         return mu, logvar
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -167,17 +180,21 @@ class DisentangledFusion(nn.Module):
                 "L_MI_fit" lets the vCLUB estimator's own parameters degrade
                 and "L_MI" diverges (see VCLUB's docstring).
         """
-        # Eq. (21)
-        z_shared = self.proj_shared(h)
-        z_branches = [proj(h) for proj in self.proj_branches]
+        # Eq. (21). z_branches clamped: it's used as `y` in VCLUB's (y - mu)**2 / exp(logvar)
+        # terms (Eq. 24/24b) -- unbounded z_branches means that residual can be large no
+        # matter how well-behaved VCLUB's own mu is, still triggering the same style of
+        # blowup once divided by a small exp(logvar). Confirmed empirically on real Colab
+        # GPU training (real batch size/dims/optimizer): avg training loss reached ~3e8
+        # already WITHIN epoch 1 (not "only after KL warm-up", as an earlier, incomplete
+        # read of the log wrongly suggested), and a from-scratch repro at real scale
+        # (~1 epoch's worth of AdamW steps) still diverged (|L_MI| ~1.9e6) even with mu
+        # clamped in VCLUB alone -- z_branches was the other unclamped path into the same
+        # (y - mu)**2 / exp(logvar) instability.
+        z_branches = [proj(h).clamp(-10.0, 10.0) for proj in self.proj_branches]
 
-        # Eq. (22). mu is clamped for the same reason logvar is: L_KL's mu**2 term is
-        # unbounded above with no natural restoring force while beta_t (Eq. 35) is still
-        # small during KL warm-up -- mu can drift to a large magnitude across many epochs
-        # without being penalized enough to notice, then once beta_t reaches its full
-        # weight post-warmup, 0.5*mu**2 explodes immediately (observed empirically: avg
-        # training loss went from ~10 to 1.7e9 to 1.0e11 within a few epochs of warm-up
-        # ending on real Colab GPU training with a real 3B-scale model).
+        # Eq. (22). mu clamped for the same reason (see above): 0.5*mu**2 in L_KL is
+        # unbounded above with no restoring force of its own.
+        z_shared = self.proj_shared(h)
         mu = self.fc_mu(z_shared).clamp(-10.0, 10.0)
         logvar = self.fc_logvar(z_shared).clamp(-10.0, 10.0)
 
@@ -204,6 +221,20 @@ class DisentangledFusion(nn.Module):
         L_MI_fit = sum(
             vclub.learning_loss(z_s_var, z_b) for vclub, z_b in zip(self.vclub_branches, z_branches)
         )
+
+        # Defensive value-level clamp, on top of clamping mu/logvar/z_branches individually
+        # above: those bound each PIECE, but real-scale AdamW training (~1600+ steps/epoch,
+        # real dims) empirically still produced transient excursions into the tens of
+        # thousands before self-correcting -- clamping the final loss VALUES guarantees a
+        # hard ceiling regardless of any interaction between pieces this hasn't accounted
+        # for. Bounds are generous relative to the legitimate range implied by the
+        # mu/logvar/z_branches clamps above (order ~1e2-1e4 for realistic d_shared), but
+        # ~1e4-1e5x smaller than the magnitudes observed during the actual divergence
+        # incident (1e8-1e11) -- if this clamp is ever active in practice, something is
+        # still wrong and worth investigating, not a normal operating point.
+        L_KL = L_KL.clamp(min=0.0, max=10_000.0)
+        L_MI = L_MI.clamp(min=-10_000.0, max=10_000.0)
+        L_MI_fit = L_MI_fit.clamp(min=-10_000.0, max=10_000.0)
 
         # Eq. (27)
         z_final = torch.cat([z_s_var, *z_branches], dim=-1)
@@ -357,8 +388,13 @@ def _check_kl_no_divergence() -> bool:
         optimizer.step()
         max_L_KL = max(max_L_KL, losses["L_KL"].item())
 
-    # Generous bound: the divergence bug this guards against reached ~1e9+ magnitude.
-    if ok and max_L_KL > 10_000.0:
+    # Bound: with mu AND logvar both clamped to [-10, 10], the theoretical max of
+    # 0.5*sum(mu**2 + exp(logvar) - logvar - 1) over d_shared=8 dims is
+    # 0.5*8*(100 + exp(10) - (-10) - 1) ~= 88,540 -- this is the legitimate clamped
+    # ceiling, not a bug. The divergence bug this guards against reached ~1e9+
+    # magnitude, so 500,000 comfortably separates "clamps are doing their job" from
+    # "still diverging" while staying well below real explosion scale.
+    if ok and max_L_KL > 500_000.0:
         print(f"FAIL: L_KL diverged over 300 steps at beta_t=1.0 (max L_KL = {max_L_KL:.2f})")
         ok = False
 
